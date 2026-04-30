@@ -1,5 +1,6 @@
 """End-to-end pipeline. D2 wires the ML Motors scraper; D3-D7 plug in next."""
 
+import asyncio
 import logging
 
 from app.models.report import (
@@ -11,7 +12,7 @@ from app.models.report import (
     RiskLevel,
     Source,
 )
-from app.analyzers import price_estimator
+from app.analyzers import photo_analyzer, price_estimator
 from app.scrapers import mercadolibre, ml_search, repuve
 
 logger = logging.getLogger(__name__)
@@ -19,20 +20,25 @@ logger = logging.getLogger(__name__)
 
 async def run_pipeline(req: AnalyzeRequest) -> Report:
     listing = await _resolve_listing(req)
-    repuve = await _resolve_repuve(req)
-    price = await _resolve_price(listing)
+    # REPUVE, precio y fotos son independientes — los corremos en paralelo.
+    repuve, price, photo_findings = await asyncio.gather(
+        _resolve_repuve(req),
+        _resolve_price(listing),
+        _resolve_photos(listing),
+    )
 
     return Report(
         score=50,
         risk_level=RiskLevel.YELLOW,
         summary=(
-            "Reporte placeholder — el motor de análisis se conectará en D2-D7. "
-            "Por ahora solo se valida la entrada y se devuelve el anuncio "
-            "normalizado."
+            "Reporte placeholder — el scoring final llega en D7. Por ahora el "
+            "endpoint regresa anuncio + REPUVE + precio justo + hallazgos de "
+            "fotos analizadas con IA."
         ),
         listing=listing,
         repuve=repuve,
         price=price,
+        photo_findings=photo_findings,
         questions_for_seller=[
             "¿Tienes la factura original y el endoso completo?",
             "¿Me dejas verificarlo en una agencia o con mi mecánico?",
@@ -123,3 +129,18 @@ async def _resolve_price(listing: ListingData) -> PriceEstimate:
     return price_estimator.estimate(
         listing, comparables, sources=["mercadolibre"]
     )
+
+
+async def _resolve_photos(listing: ListingData):
+    """Analiza las primeras N fotos con Claude visión.
+
+    Si no hay fotos o la API key falta, regresa lista vacía. Cualquier
+    error individual lo absorbe `photo_analyzer` (no propaga).
+    """
+    if not listing.photo_urls:
+        return []
+    try:
+        return await photo_analyzer.analyze_photos(listing.photo_urls)
+    except Exception:  # noqa: BLE001
+        logger.exception("Photo analyzer falló")
+        return []
