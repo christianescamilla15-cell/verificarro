@@ -1,4 +1,6 @@
-"""End-to-end pipeline. D1 returns a stub; D2-D7 will plug in real modules."""
+"""End-to-end pipeline. D2 wires the ML Motors scraper; D3-D7 plug in next."""
+
+import logging
 
 from app.models.report import (
     AnalyzeRequest,
@@ -9,6 +11,9 @@ from app.models.report import (
     RiskLevel,
     Source,
 )
+from app.scrapers import mercadolibre
+
+logger = logging.getLogger(__name__)
 
 
 async def run_pipeline(req: AnalyzeRequest) -> Report:
@@ -58,17 +63,19 @@ async def _resolve_listing(req: AnalyzeRequest) -> ListingData:
             "Se requiere `url` (Mercado Libre) o `manual_listing` (Facebook)."
         )
 
-    # D2 connects this branch to the real Mercado Libre Motors scraper.
-    return ListingData(
-        source=Source.MERCADOLIBRE,
-        source_url=str(req.url),
-        title="(scraper pendiente — D2)",
-        price_mxn=0,
-        year=0,
-        make="",
-        model="",
-        kilometers=0,
-        location="",
+    if req.source == Source.MERCADOLIBRE:
+        try:
+            return await mercadolibre.scrape(str(req.url))
+        except ValueError:
+            raise
+        except Exception as exc:
+            logger.exception("Mercado Libre scrape falló")
+            raise ValueError(
+                f"No pude leer el anuncio de Mercado Libre: {exc}"
+            ) from exc
+
+    raise ValueError(
+        f"Source `{req.source}` requiere `manual_listing` (no soporta URL directa)."
     )
 
 
