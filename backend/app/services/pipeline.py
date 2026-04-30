@@ -11,7 +11,7 @@ from app.models.report import (
     RiskLevel,
     Source,
 )
-from app.scrapers import mercadolibre
+from app.scrapers import mercadolibre, repuve
 
 logger = logging.getLogger(__name__)
 
@@ -80,15 +80,30 @@ async def _resolve_listing(req: AnalyzeRequest) -> ListingData:
 
 
 async def _resolve_repuve(req: AnalyzeRequest) -> RepuveResult:
+    # 1. Si el usuario ya pegó el resultado manualmente, eso gana.
+    if req.repuve_manual is not None:
+        return RepuveResult(
+            queried=True,
+            plate=req.plate,
+            vin=req.vin,
+            is_stolen=req.repuve_manual.is_stolen,
+            has_legal_status=req.repuve_manual.has_legal_status,
+            raw_status="manual",
+        )
+
     if not req.plate and not req.vin:
         return RepuveResult(queried=False, error="Sin placa ni NIV")
-    # D3 will run the actual REPUVE Playwright scraper.
-    return RepuveResult(
-        queried=False,
-        plate=req.plate,
-        vin=req.vin,
-        error="REPUVE scraper pendiente — D3",
-    )
+
+    try:
+        return await repuve.query(plate=req.plate, vin=req.vin)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("REPUVE query falló")
+        return RepuveResult(
+            queried=False,
+            plate=req.plate,
+            vin=req.vin,
+            error=f"Error inesperado en REPUVE: {exc}",
+        )
 
 
 async def _resolve_price(_listing: ListingData) -> PriceEstimate:

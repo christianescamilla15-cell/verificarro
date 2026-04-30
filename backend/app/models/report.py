@@ -27,6 +27,10 @@ class AnalyzeRequest(BaseModel):
     Para Mercado Libre Motors basta el `url`. Para Facebook Marketplace
     (requiere login) el frontend manda los campos manualmente vía
     `manual_listing` y opcionalmente fotos.
+
+    REPUVE auto-consulta puede fallar por reCaptcha de Google. Para esos
+    casos, el frontend ofrece un link a repuve.gob.mx y deja al usuario
+    pegar el resultado en `repuve_manual`.
     """
 
     url: HttpUrl | None = None
@@ -34,6 +38,18 @@ class AnalyzeRequest(BaseModel):
     vin: str | None = Field(default=None, description="NIV (VIN) para REPUVE")
     source: Source = Source.MERCADOLIBRE
     manual_listing: "ManualListing | None" = None
+    repuve_manual: "RepuveManual | None" = Field(
+        default=None,
+        description="Resultado de REPUVE pegado a mano cuando reCaptcha bloquea auto-consulta",
+    )
+
+
+class RepuveManual(BaseModel):
+    """Resultado de REPUVE capturado manualmente por el usuario."""
+
+    is_stolen: bool
+    has_legal_status: bool | None = None
+    notes: str = ""
 
 
 class ManualListing(BaseModel):
@@ -148,3 +164,4 @@ class Report(BaseModel):
 
 
 AnalyzeRequest.model_rebuild()
+RepuveManual.model_rebuild()
