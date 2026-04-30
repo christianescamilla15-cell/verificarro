@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="es-MX">
+<head><meta charset="UTF-8"><title>Honda Civic | Mercado Libre</title></head>
+<body>
+
+<div class="poly-card">
+  <span>AUTO VERIFICADO</span>
+  <h2>Honda Civic LX 2018 4p Aut</h2>
+  <span class="andes-money-amount__fraction">230,000</span>
+  <p>2018</p>
+  <p>78,500 km</p>
+  <p>Benito Juárez - Distrito Federal</p>
+  <a href="https://auto.mercadolibre.com.mx/MLM-1111-honda-civic-lx-_JM#tracking">link</a>
+</div>
+
+<div class="poly-card">
+  <h2>Honda Civic Touring 2019</h2>
+  <span class="andes-money-amount__fraction">280,000</span>
+  <p>2019</p>
+  <p>62,000 km</p>
+  <p>Coyoacán - Distrito Federal</p>
+  <a href="https://auto.mercadolibre.com.mx/MLM-2222-honda-civic-touring-_JM">link</a>
+</div>
+
+<div class="poly-card">
+  <h2>Honda Civic EX 2017</h2>
+  <span class="andes-money-amount__fraction">195,000</span>
+  <p>2017</p>
+  <p>105,000 km</p>
+  <p>Iztapalapa - Distrito Federal</p>
+  <a href="https://auto.mercadolibre.com.mx/MLM-3333-honda-civic-ex-_JM">link</a>
+</div>
+
+<!-- Card sin link MLM (publicidad) — el parser debe descartarla -->
+<div class="poly-card">
+  <h2>Promo Civic</h2>
+  <span class="andes-money-amount__fraction">99,999</span>
+  <p>2020</p>
+  <p>50,000 km</p>
+  <a href="https://promo.example.com/banner">no MLM</a>
+</div>
+
+<!-- Card duplicada por URL (igual MLM-2222) — debe filtrarse -->
+<div class="poly-card">
+  <h2>Honda Civic Touring 2019 (dup)</h2>
+  <span class="andes-money-amount__fraction">280,000</span>
+  <p>2019</p>
+  <p>62,000 km</p>
+  <a href="https://auto.mercadolibre.com.mx/MLM-2222-honda-civic-touring-_JM#dup">link</a>
+</div>
+
+</body>
+</html>

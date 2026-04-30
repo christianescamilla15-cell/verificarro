@@ -11,7 +11,8 @@ from app.models.report import (
     RiskLevel,
     Source,
 )
-from app.scrapers import mercadolibre, repuve
+from app.analyzers import price_estimator
+from app.scrapers import mercadolibre, ml_search, repuve
 
 logger = logging.getLogger(__name__)
 
@@ -106,6 +107,19 @@ async def _resolve_repuve(req: AnalyzeRequest) -> RepuveResult:
         )
 
 
-async def _resolve_price(_listing: ListingData) -> PriceEstimate:
-    # D4 plugs in the Kavak / Seminuevos comparable scraper.
-    return PriceEstimate(comparables_count=0, sources=[])
+async def _resolve_price(listing: ListingData) -> PriceEstimate:
+    """Trae comparables de ML Motors search y calcula precio justo."""
+    if not listing.make or not listing.model:
+        return PriceEstimate(comparables_count=0, sources=[])
+
+    try:
+        comparables = await ml_search.find_comparables(
+            listing.make, listing.model, limit=50
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("ML search comparables falló")
+        return PriceEstimate(comparables_count=0, sources=[])
+
+    return price_estimator.estimate(
+        listing, comparables, sources=["mercadolibre"]
+    )
