@@ -1,0 +1,150 @@
+from datetime import UTC, datetime
+from enum import Enum
+from typing import Literal
+
+from pydantic import BaseModel, Field, HttpUrl
+
+
+def _utc_now() -> datetime:
+    return datetime.now(UTC)
+
+
+class Source(str, Enum):
+    MERCADOLIBRE = "mercadolibre"
+    FACEBOOK = "facebook"
+    MANUAL = "manual"
+
+
+class RiskLevel(str, Enum):
+    GREEN = "green"
+    YELLOW = "yellow"
+    RED = "red"
+
+
+class AnalyzeRequest(BaseModel):
+    """Entrada del verificador.
+
+    Para Mercado Libre Motors basta el `url`. Para Facebook Marketplace
+    (requiere login) el frontend manda los campos manualmente vía
+    `manual_listing` y opcionalmente fotos.
+    """
+
+    url: HttpUrl | None = None
+    plate: str | None = Field(default=None, description="Placa para REPUVE")
+    vin: str | None = Field(default=None, description="NIV (VIN) para REPUVE")
+    source: Source = Source.MERCADOLIBRE
+    manual_listing: "ManualListing | None" = None
+
+
+class ManualListing(BaseModel):
+    """Listado capturado a mano (FB Marketplace u otro sin scrape)."""
+
+    title: str
+    price_mxn: float
+    year: int
+    make: str
+    model: str
+    kilometers: int
+    location: str
+    description: str = ""
+    seller_name: str = ""
+    photo_urls: list[HttpUrl] = Field(default_factory=list)
+
+
+class ListingData(BaseModel):
+    """Anuncio normalizado tras scrape o captura manual."""
+
+    source: Source
+    source_url: str | None = None
+    title: str
+    price_mxn: float
+    year: int
+    make: str
+    model: str
+    trim: str | None = None
+    kilometers: int
+    location: str
+    description: str = ""
+    seller_name: str = ""
+    seller_account_age_days: int | None = None
+    photo_urls: list[str] = Field(default_factory=list)
+    fetched_at: datetime = Field(default_factory=_utc_now)
+
+
+class RepuveResult(BaseModel):
+    queried: bool
+    plate: str | None = None
+    vin: str | None = None
+    is_stolen: bool | None = None
+    has_legal_status: bool | None = None
+    raw_status: str | None = None
+    error: str | None = None
+
+
+class PriceEstimate(BaseModel):
+    fair_price_mxn: float | None = None
+    range_low_mxn: float | None = None
+    range_high_mxn: float | None = None
+    delta_pct: float | None = Field(
+        default=None,
+        description="(precio_anuncio - fair_price) / fair_price * 100",
+    )
+    comparables_count: int = 0
+    sources: list[str] = Field(default_factory=list)
+
+
+class PhotoFinding(BaseModel):
+    photo_index: int
+    issue: Literal[
+        "paint_mismatch",
+        "panel_gap",
+        "rust",
+        "prior_repair",
+        "low_quality",
+        "watermark_or_stock",
+        "other",
+    ]
+    severity: Literal["low", "medium", "high"]
+    note: str
+
+
+class DescriptionFinding(BaseModel):
+    flag: Literal[
+        "urgency",
+        "no_inspection_allowed",
+        "seller_abroad",
+        "advance_payment_request",
+        "vague_history",
+        "other",
+    ]
+    severity: Literal["low", "medium", "high"]
+    excerpt: str
+
+
+class SellerFinding(BaseModel):
+    flag: Literal[
+        "new_account",
+        "no_other_listings",
+        "low_response_rate",
+        "duplicated_photos",
+        "other",
+    ]
+    severity: Literal["low", "medium", "high"]
+    note: str
+
+
+class Report(BaseModel):
+    score: int = Field(ge=0, le=100)
+    risk_level: RiskLevel
+    summary: str
+    listing: ListingData
+    repuve: RepuveResult
+    price: PriceEstimate
+    photo_findings: list[PhotoFinding] = Field(default_factory=list)
+    description_findings: list[DescriptionFinding] = Field(default_factory=list)
+    seller_findings: list[SellerFinding] = Field(default_factory=list)
+    questions_for_seller: list[str] = Field(default_factory=list)
+    generated_at: datetime = Field(default_factory=_utc_now)
+
+
+AnalyzeRequest.model_rebuild()

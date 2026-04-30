@@ -1,0 +1,169 @@
+.app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.hero {
+  text-align: center;
+  padding: 4rem 1.5rem 3rem;
+  background: linear-gradient(180deg, #11161c 0%, #0b0d10 100%);
+  border-bottom: 1px solid #1c2129;
+}
+
+.hero h1 {
+  font-size: clamp(2.5rem, 6vw, 4rem);
+  margin: 0 0 0.5rem;
+  letter-spacing: -0.02em;
+  background: linear-gradient(90deg, #ffb84d, #ff6b6b);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.tagline {
+  font-size: 1.25rem;
+  margin: 0.25rem 0;
+  color: #e5e7eb;
+}
+
+.subtag {
+  margin: 0.5rem 0 0;
+  color: #9ca3af;
+  font-size: 0.95rem;
+}
+
+.container {
+  flex: 1;
+  width: 100%;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 2.5rem 1.5rem;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  background: #11161c;
+  padding: 1.5rem;
+  border-radius: 12px;
+  border: 1px solid #1c2129;
+}
+
+.form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  font-size: 0.9rem;
+  color: #cbd5e1;
+}
+
+.form input {
+  padding: 0.7rem 0.9rem;
+  border-radius: 8px;
+  border: 1px solid #2a313b;
+  background: #0b0d10;
+  color: #f5f5f5;
+  font-size: 1rem;
+}
+
+.form input:focus {
+  outline: none;
+  border-color: #ffb84d;
+}
+
+.form button {
+  margin-top: 0.5rem;
+  padding: 0.85rem 1rem;
+  border-radius: 8px;
+  border: none;
+  background: #ffb84d;
+  color: #1a1300;
+  font-weight: 600;
+  font-size: 1rem;
+  transition: opacity 0.15s;
+}
+
+.form button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.error {
+  margin-top: 1.5rem;
+  padding: 1rem;
+  border-radius: 8px;
+  background: #2a1414;
+  border: 1px solid #5a2222;
+  color: #fca5a5;
+}
+
+.report {
+  margin-top: 2rem;
+  padding: 1.5rem;
+  background: #11161c;
+  border-radius: 12px;
+  border: 1px solid #1c2129;
+}
+
+.report h2 {
+  margin-top: 0;
+}
+
+.score {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.25rem;
+  padding: 0.75rem 1.25rem;
+  border-radius: 999px;
+  font-weight: 700;
+  margin: 1rem 0;
+}
+
+.score-green {
+  background: #14401e;
+  color: #86efac;
+}
+.score-yellow {
+  background: #3d3414;
+  color: #fcd34d;
+}
+.score-red {
+  background: #401414;
+  color: #fca5a5;
+}
+
+.score-num {
+  font-size: 2rem;
+}
+.score-label {
+  font-size: 1rem;
+  opacity: 0.7;
+}
+
+.summary {
+  color: #cbd5e1;
+  line-height: 1.6;
+}
+
+.report h3 {
+  margin-top: 1.5rem;
+  font-size: 1rem;
+  color: #ffb84d;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.report ul,
+.report ol {
+  padding-left: 1.25rem;
+  color: #cbd5e1;
+}
+
+.footer {
+  text-align: center;
+  padding: 2rem 1rem;
+  color: #6b7280;
+  border-top: 1px solid #1c2129;
+}
