@@ -39,9 +39,32 @@ class VinScanResponse(BaseModel):
 
 
 def _to_pydantic_vin_check(result) -> VinCheck:
-    """Convierte el dataclass `VinCheckResult` a su espejo Pydantic."""
+    """Convierte el dataclass `VinCheckResult` a su espejo Pydantic.
+
+    Si `result.nhtsa` está set (vino enrichment), inyecta los campos
+    NHTSA al `VinDecodedModel` para que el frontend los muestre.
+    """
+    decoded_kwargs = dict(result.decoded.__dict__)
+    if getattr(result, "nhtsa", None) is not None and result.nhtsa.found:
+        n = result.nhtsa
+        decoded_kwargs.update({
+            "nhtsa_found": True,
+            "nhtsa_make": n.make,
+            "nhtsa_model": n.model,
+            "nhtsa_model_year": n.model_year,
+            "nhtsa_body_class": n.body_class,
+            "nhtsa_trim": n.trim,
+            "nhtsa_engine_cylinders": n.engine_cylinders,
+            "nhtsa_engine_displacement_l": n.engine_displacement_l,
+            "nhtsa_fuel_type": n.fuel_type_primary,
+            "nhtsa_transmission": n.transmission_style,
+            "nhtsa_drive_type": n.drive_type,
+            "nhtsa_doors": n.doors,
+            "nhtsa_plant_country": n.plant_country,
+            "nhtsa_plant_city": n.plant_city,
+        })
     return VinCheck(
-        decoded=VinDecodedModel(**result.decoded.__dict__),
+        decoded=VinDecodedModel(**decoded_kwargs),
         matches_listing=result.matches_listing,
         alerts=[VinAlertModel(severity=a.severity, message=a.message)
                 for a in result.alerts],
@@ -96,11 +119,18 @@ async def check_vin(req: VinCheckRequest) -> VinCheck:
     """Decodifica un VIN escaneado y lo compara contra el anuncio.
 
     Usado por el frontend cuando el usuario escanea el VIN del auto
-    físico. Devuelve marca/año decodificados + lista de alertas.
+    físico. Hace decode local + enrichment NHTSA vPIC en paralelo:
+    si NHTSA responde, se incluyen specs oficiales fabricante (body
+    class, engine, doors, plant country) y alertas de discrepancia.
 
-    Sin red, sin Claude API. Costo: cero.
+    Costos:
+    - Decoder local: $0
+    - NHTSA vPIC: $0 (gratis, sin auth, sin rate limit publicado)
+    - Si NHTSA falla → degradación limpia al decoder local
+
+    Latencia típica: <100ms si NHTSA falla, ~1.5s si responde.
     """
-    result = vin_check_module.check(
+    result = await vin_check_module.check_with_enrichment(
         raw_vin=req.vin,
         listing=req.listing,
         repuve=req.repuve,

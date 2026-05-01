@@ -164,7 +164,7 @@ async def run_pipeline(req: AnalyzeRequest) -> Report:
     )
     description_findings = description_analyzer.analyze(listing.description)
     seller_findings = seller_analyzer.analyze(listing)
-    vin_check = _maybe_run_vin_check(req, listing, repuve)
+    vin_check = await _maybe_run_vin_check(req, listing, repuve)
 
     report = Report(
         # Placeholder; `scoring.populate` lo sobreescribe a continuación.
@@ -187,19 +187,18 @@ async def run_pipeline(req: AnalyzeRequest) -> Report:
     return scoring.populate(report)
 
 
-def _maybe_run_vin_check(
+async def _maybe_run_vin_check(
     req: AnalyzeRequest, listing: ListingData, repuve: RepuveResult
 ):
-    """Si la request trae VIN, corre el check + integra al Report.
+    """Si la request trae VIN, corre el check enriquecido + integra al Report.
+
+    Usa `check_with_enrichment` (async) que hace decode local + NHTSA vPIC
+    en paralelo. Si NHTSA falla, degrada limpio al decode local.
 
     Si NO hay VIN escaneado pero la descripción del anuncio menciona
     uno, el `vin_check_module.check` lo extrae y lo regresa en
     `vin_in_description`. Por eso siempre vale la pena pasar el VIN
     cuando esté disponible.
-
-    Importamos aquí porque `app.api.analyze` ya tiene un converter
-    dataclass→Pydantic; lo replicamos en línea para no crear
-    dependencia circular.
     """
     if not req.vin:
         return None
@@ -209,13 +208,34 @@ def _maybe_run_vin_check(
         VinDecodedModel,
     )
 
-    result = vin_check_module.check(
+    result = await vin_check_module.check_with_enrichment(
         raw_vin=req.vin,
         listing=listing,
         repuve=repuve,
     )
+
+    decoded_kwargs = dict(result.decoded.__dict__)
+    if result.nhtsa is not None and result.nhtsa.found:
+        n = result.nhtsa
+        decoded_kwargs.update({
+            "nhtsa_found": True,
+            "nhtsa_make": n.make,
+            "nhtsa_model": n.model,
+            "nhtsa_model_year": n.model_year,
+            "nhtsa_body_class": n.body_class,
+            "nhtsa_trim": n.trim,
+            "nhtsa_engine_cylinders": n.engine_cylinders,
+            "nhtsa_engine_displacement_l": n.engine_displacement_l,
+            "nhtsa_fuel_type": n.fuel_type_primary,
+            "nhtsa_transmission": n.transmission_style,
+            "nhtsa_drive_type": n.drive_type,
+            "nhtsa_doors": n.doors,
+            "nhtsa_plant_country": n.plant_country,
+            "nhtsa_plant_city": n.plant_city,
+        })
+
     return VinCheck(
-        decoded=VinDecodedModel(**result.decoded.__dict__),
+        decoded=VinDecodedModel(**decoded_kwargs),
         matches_listing=result.matches_listing,
         alerts=[VinAlertModel(severity=a.severity, message=a.message)
                 for a in result.alerts],

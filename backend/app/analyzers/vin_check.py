@@ -35,6 +35,7 @@ from typing import Literal
 
 from app.analyzers.vin_decoder import VinDecoded, decode, normalize_vin
 from app.models.report import ListingData, RepuveResult
+from app.services.nhtsa import NhtsaDecodeResult, decode_vin as nhtsa_decode
 
 
 # Coincide con cualquier substring de 17 caracteres alfanuméricos válidos
@@ -55,6 +56,7 @@ class VinCheckResult:
     matches_listing: bool
     alerts: list[VinAlert] = field(default_factory=list)
     vin_in_description: str | None = None
+    nhtsa: NhtsaDecodeResult | None = None
     scanned_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
@@ -201,3 +203,146 @@ def _extract_vin_from_text(text: str | None) -> str | None:
         return None
     match = _VIN_IN_TEXT_RE.search(text.upper())
     return match.group(1) if match else None
+
+
+# ---------------------------------------------------------------------------
+# NHTSA enrichment
+
+
+# Body class del listing.title contra body class del VIN.
+# Si el title menciona alguna de las KEYWORDS de un grupo y NHTSA dice
+# que el VIN es de otro grupo distinto, es señal fuerte de placa clonada.
+_BODY_CLASS_KEYWORDS: dict[str, tuple[str, ...]] = {
+    "Sedan/Saloon": ("sedan", "sedán", "saloon"),
+    "SUV": ("suv", "crossover", "todo terreno"),
+    "Pickup": ("pickup", "pick-up", "pick up", "camioneta de batea"),
+    "Hatchback": ("hatchback", "hatch", "5 puertas"),
+    "Coupe": ("coupé", "coupe", "deportivo 2 puertas"),
+    "Convertible/Cabriolet": ("convertible", "cabrio", "convertable"),
+    "Van": ("van", "minivan", "vagoneta"),
+}
+
+
+def _normalize_nhtsa_body(s: str | None) -> str | None:
+    """vPIC body_class viene como 'Sedan/Saloon', 'Sport Utility Vehicle (SUV)', etc.
+    Lo mapeamos a una bucket nuestra para comparar con keywords del title.
+    """
+    if not s:
+        return None
+    s_lower = s.lower()
+    if "sedan" in s_lower or "saloon" in s_lower:
+        return "Sedan/Saloon"
+    if "suv" in s_lower or "sport utility" in s_lower or "crossover" in s_lower:
+        return "SUV"
+    if "pickup" in s_lower or "truck" in s_lower:
+        return "Pickup"
+    if "hatchback" in s_lower:
+        return "Hatchback"
+    if "coupe" in s_lower or "coupé" in s_lower:
+        return "Coupe"
+    if "convertible" in s_lower or "cabriolet" in s_lower:
+        return "Convertible/Cabriolet"
+    if "van" in s_lower or "minivan" in s_lower:
+        return "Van"
+    return None
+
+
+def _check_body_class_mismatch(
+    nhtsa: NhtsaDecodeResult, listing: ListingData, alerts: list[VinAlert]
+) -> None:
+    """Si el VIN dice un body class y el title del anuncio menciona otro distinto,
+    emitimos high alert (clonación-de-placa probable: el auto físico es de
+    otra clase corporal que el del listing)."""
+    nhtsa_bucket = _normalize_nhtsa_body(nhtsa.body_class)
+    if not nhtsa_bucket:
+        return
+
+    title = (listing.title or "").lower()
+    if not title:
+        return
+
+    # ¿El title menciona keywords de OTRA bucket distinta a nhtsa_bucket?
+    for bucket, keywords in _BODY_CLASS_KEYWORDS.items():
+        if bucket == nhtsa_bucket:
+            continue
+        if any(kw in title for kw in keywords):
+            # El title dice "SUV" pero NHTSA dice "Sedan" → alert
+            alerts.append(VinAlert(
+                severity="high",
+                message=(
+                    f"NHTSA reporta que el VIN físico es '{nhtsa.body_class}' "
+                    f"pero el anuncio describe un '{bucket}'. POSIBLE PLACA "
+                    "CLONADA — el auto físico es de otra carrocería que el "
+                    "del anuncio."
+                ),
+            ))
+            return
+
+
+def _check_make_mismatch_nhtsa(
+    nhtsa: NhtsaDecodeResult, listing: ListingData, alerts: list[VinAlert]
+) -> None:
+    """NHTSA es más autoritativo que el WMI local para make. Si NHTSA
+    devolvió make y difiere del listing, emitimos alerta high. (El check
+    de make local ya emite high si WMI mismatch — esto cubre el caso donde
+    el WMI local no tenía la marca pero NHTSA sí.)"""
+    if not nhtsa.make or not listing.make:
+        return
+    if nhtsa.make.strip().lower() == listing.make.strip().lower():
+        return
+    # Tolera aliases comunes: NHTSA usa "MERCEDES-BENZ", listings "Mercedes Benz"
+    n = nhtsa.make.strip().lower().replace("-", " ")
+    l = listing.make.strip().lower().replace("-", " ")
+    if n == l:
+        return
+    alerts.append(VinAlert(
+        severity="high",
+        message=(
+            f"NHTSA reporta que el VIN físico es '{nhtsa.make}' pero el "
+            f"anuncio dice '{listing.make}'. Discrepancia oficial — "
+            "verifica que el auto sea el mismo del anuncio."
+        ),
+    ))
+
+
+async def check_with_enrichment(
+    raw_vin: str,
+    listing: ListingData,
+    repuve: RepuveResult | None = None,
+) -> VinCheckResult:
+    """Versión async de `check()` que además consulta NHTSA vPIC.
+
+    Flow:
+      1. Decode local (sync, instantáneo)
+      2. Si VIN inválido → return early con resultado del check sync
+      3. NHTSA decode en paralelo (async, ~1-2s)
+      4. Merge: agregar campos NHTSA al resultado + alertas adicionales
+         (body-class mismatch, make mismatch confirmado por NHTSA)
+
+    Si NHTSA falla (timeout/network), seguimos con el resultado sync —
+    NHTSA es enrichment, no requirement.
+    """
+    base = check(raw_vin, listing, repuve)
+    if not base.decoded.valid_format:
+        return base
+
+    nhtsa = await nhtsa_decode(base.decoded.vin)
+    if nhtsa is None or not nhtsa.found:
+        return base
+
+    extra_alerts: list[VinAlert] = list(base.alerts)
+    _check_make_mismatch_nhtsa(nhtsa, listing, extra_alerts)
+    _check_body_class_mismatch(nhtsa, listing, extra_alerts)
+
+    matches = base.matches_listing and not any(
+        a.severity == "high" for a in extra_alerts if a not in base.alerts
+    )
+
+    return VinCheckResult(
+        decoded=base.decoded,
+        matches_listing=matches,
+        alerts=extra_alerts,
+        vin_in_description=base.vin_in_description,
+        nhtsa=nhtsa,
+        scanned_at=base.scanned_at,
+    )

@@ -150,8 +150,12 @@ class SellerFinding(BaseModel):
 
 
 class VinDecodedModel(BaseModel):
-    """Resultado del decoder local del VIN. Espejo Pydantic del
-    `VinDecoded` dataclass de `app.analyzers.vin_decoder`."""
+    """Resultado del decoder local del VIN + enrichment NHTSA (opcional).
+
+    Los campos `nhtsa_*` se pueblan cuando NHTSA vPIC respondió. Si
+    NHTSA falló o el VIN es inválido, vienen None y el reporte funciona
+    igual con solo el decoder local.
+    """
 
     vin: str
     valid_format: bool
@@ -162,6 +166,22 @@ class VinDecodedModel(BaseModel):
     manufacturer_aliases: list[str] = Field(default_factory=list)
     year: int | None = None
     errors: list[str] = Field(default_factory=list)
+
+    # --- Enrichment NHTSA vPIC (oficial) ---
+    nhtsa_found: bool = False
+    nhtsa_make: str | None = None
+    nhtsa_model: str | None = None
+    nhtsa_model_year: int | None = None
+    nhtsa_body_class: str | None = None  # "Sedan", "SUV", "Pickup", ...
+    nhtsa_trim: str | None = None
+    nhtsa_engine_cylinders: int | None = None
+    nhtsa_engine_displacement_l: float | None = None
+    nhtsa_fuel_type: str | None = None
+    nhtsa_transmission: str | None = None
+    nhtsa_drive_type: str | None = None
+    nhtsa_doors: int | None = None
+    nhtsa_plant_country: str | None = None
+    nhtsa_plant_city: str | None = None
 
 
 class VinAlertModel(BaseModel):
