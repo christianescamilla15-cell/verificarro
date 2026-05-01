@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import {
-  X, Camera, Image as ImageIcon, Keyboard, ArrowLeft, ScanLine,
-  RefreshCcw, Send, AlertTriangle,
+  X, Camera, Image as ImageIcon, Keyboard, ScanLine,
+  AlertTriangle, ArrowLeft, RefreshCcw, Send,
 } from 'lucide-react'
 import { api } from '../lib/api.js'
 import Spinner from './Spinner.jsx'
@@ -16,18 +16,25 @@ import Spinner from './Spinner.jsx'
  * Tras éxito, llama `onResult({report_id, plate, score, risk_level, summary})`.
  * El padre redirige a `/preview/{report_id}`.
  */
+const AUTO_CAPTURE_INITIAL_DELAY_MS = 2000  // espera estabilización antes del 1er shot
+const AUTO_CAPTURE_RETRY_DELAY_MS = 2500    // entre reintentos
+const AUTO_CAPTURE_MAX_ATTEMPTS = 3         // ~3 × $0.006 = $0.018 USD máximo por sesión
+
 export default function PlateScanner({ onResult, onClose }) {
   const videoRef = useRef(null)
   const canvasRef = useRef(null)
   const fileInputRef = useRef(null)
   const streamRef = useRef(null)
+  const autoCaptureCancelRef = useRef(false)
   const [stage, setStage] = useState('mode')
-  // mode | camera | preview | scanning | manual | error
+  // mode | camera | scanning | manual | error
   const [error, setError] = useState(null)
   const [cameraError, setCameraError] = useState(null)
   const [manualPlate, setManualPlate] = useState('')
   const [manualVin, setManualVin] = useState('')
   const [manualKind, setManualKind] = useState('plate')
+  const [captureCountdown, setCaptureCountdown] = useState(0)
+  const [captureAttempt, setCaptureAttempt] = useState(0)
 
   function stopStream() {
     if (streamRef.current) {
@@ -37,12 +44,17 @@ export default function PlateScanner({ onResult, onClose }) {
   }
 
   useEffect(() => {
-    return () => stopStream()
+    return () => {
+      autoCaptureCancelRef.current = true
+      stopStream()
+    }
   }, [])
 
   async function openCamera() {
     setStage('camera')
     setError(null)
+    autoCaptureCancelRef.current = false
+    setCaptureAttempt(0)
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: { ideal: 'environment' }, width: 1280, height: 720 },
@@ -52,44 +64,90 @@ export default function PlateScanner({ onResult, onClose }) {
       if (videoRef.current) {
         videoRef.current.srcObject = stream
       }
+      // Arrancar el loop de auto-captura
+      runAutoCaptureLoop()
     } catch (err) {
       setCameraError(err.message || 'No pudimos acceder a la cámara')
       setStage('mode')
     }
   }
 
-  function capture() {
+  /**
+   * Loop de captura automática:
+   *   1. Espera estabilización (2s) — da tiempo al usuario a posicionar
+   *   2. Captura frame → envía a OCR
+   *   3. Si OK → onResult
+   *   4. Si falla → espera 2.5s, reintenta hasta MAX_ATTEMPTS
+   *   5. Tras MAX_ATTEMPTS sin éxito → muestra mensaje + opción manual
+   */
+  async function runAutoCaptureLoop() {
+    for (let attempt = 1; attempt <= AUTO_CAPTURE_MAX_ATTEMPTS; attempt++) {
+      if (autoCaptureCancelRef.current) return
+      const delay = attempt === 1 ? AUTO_CAPTURE_INITIAL_DELAY_MS : AUTO_CAPTURE_RETRY_DELAY_MS
+
+      // Countdown visual
+      const countdownStart = Math.ceil(delay / 1000)
+      for (let s = countdownStart; s > 0; s--) {
+        if (autoCaptureCancelRef.current) return
+        setCaptureCountdown(s)
+        await sleep(1000)
+      }
+      setCaptureCountdown(0)
+
+      if (autoCaptureCancelRef.current) return
+      setCaptureAttempt(attempt)
+
+      const success = await tryAutoCapture()
+      if (success) return  // onResult ya se invocó adentro
+    }
+
+    // Tras 3 intentos fallidos
+    if (!autoCaptureCancelRef.current) {
+      setError(
+        'No pudimos leer la placa con la cámara después de 3 intentos. ' +
+        'Prueba con mejor luz o ingresa la placa manualmente.'
+      )
+      setStage('error')
+      stopStream()
+    }
+  }
+
+  async function tryAutoCapture() {
     const video = videoRef.current
     const canvas = canvasRef.current
-    if (!video || !canvas) return
-    canvas.width = video.videoWidth
-    canvas.height = video.videoHeight
+    if (!video || !canvas) return false
+
+    canvas.width = video.videoWidth || 1280
+    canvas.height = video.videoHeight || 720
     canvas.getContext('2d').drawImage(video, 0, 0)
-    stopStream()
-    setStage('preview')
-  }
-
-  function retake() {
-    setStage('mode')
-    setError(null)
-  }
-
-  async function submitImage() {
-    const canvas = canvasRef.current
-    if (!canvas) return
-    setStage('scanning')
     const dataUrl = canvas.toDataURL('image/jpeg', 0.85)
     const base64 = dataUrl.split(',')[1]
+
     const res = await api.post('/api/scan/plate', {
       image_base64: base64,
       media_type: 'image/jpeg',
     })
-    if (!res.ok) {
-      setError(res.error || 'No pudimos leer la placa')
-      setStage('error')
-      return
+
+    if (autoCaptureCancelRef.current) return false
+
+    if (res.ok) {
+      stopStream()
+      autoCaptureCancelRef.current = true
+      onResult(res.data)
+      return true
     }
-    onResult(res.data)
+    // Falló — el loop reintentará si quedan attempts
+    return false
+  }
+
+  function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms))
+  }
+
+  function handleOverlayClick() {
+    autoCaptureCancelRef.current = true
+    stopStream()
+    onClose()
   }
 
   async function handleFileUpload(e) {
@@ -152,11 +210,16 @@ export default function PlateScanner({ onResult, onClose }) {
   }
 
   return (
-    <div className="vin-scanner-overlay" role="dialog" aria-modal="true">
-      <div className="vin-scanner">
+    <div
+      className="vin-scanner-overlay"
+      role="dialog"
+      aria-modal="true"
+      onClick={handleOverlayClick}
+    >
+      <div className="vin-scanner" onClick={(e) => e.stopPropagation()}>
         <div className="vin-scanner-header">
           <h2><ScanLine size={20} style={{ verticalAlign: '-3px', marginRight: 6, color: 'var(--accent-text)' }} />Escanear placa</h2>
-          <button onClick={onClose} className="close-btn" aria-label="Cerrar">
+          <button onClick={handleOverlayClick} className="close-btn" aria-label="Cerrar">
             <X size={22} />
           </button>
         </div>
@@ -200,35 +263,28 @@ export default function PlateScanner({ onResult, onClose }) {
         {stage === 'camera' && (
           <>
             <p className="muted">
-              Encuadra los caracteres de la placa dentro del marco. Acerca
-              el teléfono para que ocupe la mayor parte del cuadro.
+              Encuadra los caracteres de la placa dentro del marco.
+              Captura automática cuando esté lista.
+              {captureAttempt > 0 && ` · Intento ${captureAttempt}/${AUTO_CAPTURE_MAX_ATTEMPTS}`}
             </p>
             <div className="camera-preview">
               <video ref={videoRef} autoPlay playsInline muted className="camera-video" />
               <div className="vin-guide" />
+              {captureCountdown > 0 && (
+                <div className="capture-countdown">
+                  <span className="countdown-num">{captureCountdown}</span>
+                  <span className="countdown-label">capturando…</span>
+                </div>
+              )}
+              {captureAttempt > 0 && captureCountdown === 0 && (
+                <div className="capture-countdown">
+                  <span className="countdown-label">leyendo…</span>
+                </div>
+              )}
             </div>
-            <div className="actions">
-              <button onClick={() => { stopStream(); setStage('mode') }} className="secondary">
-                <ArrowLeft size={18} /> Volver
-              </button>
-              <button onClick={capture} className="primary">
-                <Camera size={18} /> Capturar
-              </button>
-            </div>
-          </>
-        )}
-
-        {stage === 'preview' && (
-          <>
-            <p>Revisa que la placa se vea clara y completa.</p>
-            <div className="actions">
-              <button onClick={retake} className="secondary">
-                <RefreshCcw size={18} /> Re-tomar
-              </button>
-              <button onClick={submitImage} className="primary">
-                <Send size={18} /> Enviar
-              </button>
-            </div>
+            <p className="muted small" style={{ textAlign: 'center', marginTop: 8 }}>
+              Click fuera de este recuadro para cerrar
+            </p>
           </>
         )}
 

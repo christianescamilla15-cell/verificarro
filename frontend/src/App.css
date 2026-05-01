@@ -793,6 +793,35 @@ button.icon-button:hover { color: var(--text-primary); background: var(--bg-card
               0 0 24px var(--accent);
   animation: scan-pulse 2.4s ease-in-out infinite;
 }
+
+/* ===== Auto-capture countdown overlay ===== */
+.capture-countdown {
+  position: absolute;
+  bottom: 12px;
+  right: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  padding: 6px 12px;
+  background: rgba(6, 8, 13, 0.78);
+  border: 1px solid var(--accent-border);
+  border-radius: var(--radius-md);
+  pointer-events: none;
+  font-family: var(--font-sans);
+}
+.capture-countdown .countdown-num {
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-bold);
+  color: var(--accent-text);
+  line-height: 1;
+}
+.capture-countdown .countdown-label {
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
 @keyframes scan-pulse {
   0%, 100% { box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.45),
                           0 0 24px var(--accent); }
