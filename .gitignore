@@ -46,6 +46,13 @@ backend/.cache/
 *.pdf
 !frontend/public/sample-report.pdf
 
+# Local DBs
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+backend/verificarro.db
+
 # OS
 Thumbs.db
 desktop.ini

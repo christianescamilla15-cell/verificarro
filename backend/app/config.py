@@ -29,6 +29,35 @@ class Settings(BaseSettings):
         default=1.0, alias="REPUVE_RATE_LIMIT_PER_SEC"
     )
 
+    # --- Database ---
+    # Default: aiosqlite local file. En Render: postgresql+asyncpg://...
+    database_url: str = Field(
+        default="sqlite+aiosqlite:///./verificarro.db",
+        alias="DATABASE_URL",
+    )
+
+    # --- Mercado Pago ---
+    mp_access_token: str = Field(default="", alias="MP_ACCESS_TOKEN")
+    mp_public_key: str = Field(default="", alias="MP_PUBLIC_KEY")
+    mp_webhook_secret: str = Field(default="", alias="MP_WEBHOOK_SECRET")
+    # Frontend URLs para success/failure/pending redirects
+    mp_success_url: str = Field(
+        default="http://localhost:5173/checkout/success",
+        alias="MP_SUCCESS_URL",
+    )
+    mp_failure_url: str = Field(
+        default="http://localhost:5173/checkout/failure",
+        alias="MP_FAILURE_URL",
+    )
+    mp_pending_url: str = Field(
+        default="http://localhost:5173/checkout/pending",
+        alias="MP_PENDING_URL",
+    )
+
+    # --- Pricing ---
+    price_basic_mxn: float = Field(default=49.0, alias="PRICE_BASIC_MXN")
+    price_premium_mxn: float = Field(default=99.0, alias="PRICE_PREMIUM_MXN")
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
