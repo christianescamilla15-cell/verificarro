@@ -22,7 +22,9 @@ export default function Landing() {
   return (
     <main>
       <section className="hero">
-        <h1>Checa tu auto antes de soltar el cash</h1>
+        <h1>
+          Checa tu auto antes de <span className="accent">soltar el cash</span>
+        </h1>
         <p className="tagline">
           REPUVE · precio justo · análisis de fotos con IA · detecta clonación de placa
         </p>
