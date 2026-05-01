@@ -1,0 +1,257 @@
+"""Tests de los endpoints de pagos.
+
+Mockean el SDK de Mercado Pago — los tests NO hacen red. La fixture
+`client` usa SQLite in-memory con override del dependency
+`get_async_session` para aislar cada test.
+"""
+
+from unittest.mock import patch
+
+import pytest
+import pytest_asyncio
+from fastapi.testclient import TestClient
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+from app.api.payments import _map_mp_status
+from app.db.base import Base
+from app.db.models import Payment, PaymentStatus
+from app.db.session import get_async_session
+from app.main import app
+from app.services.mercadopago import CheckoutPreference, MpPaymentInfo
+
+
+@pytest_asyncio.fixture
+async def db_factory():
+    """Engine + factory in-memory por test, con teardown."""
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    yield factory
+    await engine.dispose()
+
+
+@pytest.fixture
+def client(db_factory):
+    """TestClient con override del dependency de DB."""
+    async def override_session():
+        async with db_factory() as s:
+            try:
+                yield s
+                await s.commit()
+            except Exception:
+                await s.rollback()
+                raise
+
+    app.dependency_overrides[get_async_session] = override_session
+    with TestClient(app) as c:
+        yield c
+    app.dependency_overrides.clear()
+
+
+# ---------------------------------------------------------------------------
+# _map_mp_status helper
+
+
+@pytest.mark.parametrize(
+    ("mp_status", "expected"),
+    [
+        ("approved", PaymentStatus.PAID),
+        ("pending", PaymentStatus.PENDING),
+        ("in_process", PaymentStatus.PENDING),
+        ("rejected", PaymentStatus.FAILED),
+        ("cancelled", PaymentStatus.FAILED),
+        ("refunded", PaymentStatus.REFUNDED),
+        ("charged_back", PaymentStatus.REFUNDED),
+        ("unknown_status", PaymentStatus.PENDING),  # fallback
+    ],
+)
+def test_map_mp_status(mp_status: str, expected: PaymentStatus) -> None:
+    assert _map_mp_status(mp_status) == expected
+
+
+# ---------------------------------------------------------------------------
+# /api/payments/checkout
+
+
+def _fake_preference() -> CheckoutPreference:
+    return CheckoutPreference(
+        preference_id="pref-test-123",
+        init_point="https://www.mercadopago.com.mx/checkout/v1/pay/pref-test-123",
+        sandbox_init_point="https://sandbox.mercadopago.com.mx/checkout/v1/pay/pref-test-123",
+        external_reference="ext-ref-from-test",
+    )
+
+
+def test_checkout_creates_payment_pending_and_calls_mp(client) -> None:
+    with patch(
+        "app.api.payments.create_preference", return_value=_fake_preference()
+    ) as mock_create:
+        res = client.post("/api/payments/checkout", json={
+            "listing_url": "https://auto.mercadolibre.com.mx/MLM-1234-honda-civic",
+            "tier": "basic",
+            "title_hint": "Honda Civic 2018",
+        })
+    assert res.status_code == 200
+    body = res.json()
+    assert body["amount_mxn"] == 49.0
+    assert body["tier"] == "basic"
+    assert body["init_point"].startswith("https://")
+    assert mock_create.called
+    # El title pasado a MP incluye el hint
+    call_kwargs = mock_create.call_args.kwargs
+    assert "Honda Civic 2018" in call_kwargs["title"]
+
+
+def test_checkout_premium_tier_charges_99(client) -> None:
+    with patch(
+        "app.api.payments.create_preference", return_value=_fake_preference()
+    ):
+        res = client.post("/api/payments/checkout", json={"tier": "premium"})
+    assert res.status_code == 200
+    assert res.json()["amount_mxn"] == 99.0
+
+
+def test_checkout_invalid_tier_returns_422(client) -> None:
+    res = client.post("/api/payments/checkout", json={"tier": "deluxe"})
+    assert res.status_code == 422
+
+
+def test_checkout_mp_failure_returns_503(client) -> None:
+    with patch(
+        "app.api.payments.create_preference",
+        side_effect=RuntimeError("MP timeout"),
+    ):
+        res = client.post("/api/payments/checkout", json={"tier": "basic"})
+    assert res.status_code == 503
+    assert "Mercado Pago" in res.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# /api/payments/webhook
+
+
+def _seed_payment(db_factory, external_ref: str = "webhook-ref-1") -> str:
+    """Helper síncrono que crea un Payment pending y devuelve su id.
+
+    Usa el factory directo porque corre fuera del request lifecycle.
+    """
+    import asyncio
+
+    async def _seed() -> str:
+        async with db_factory() as s:
+            p = Payment(
+                amount_mxn=49.0,
+                mp_external_reference=external_ref,
+                status=PaymentStatus.PENDING,
+                mp_preference_id="pref-seed-1",
+            )
+            s.add(p)
+            await s.commit()
+            return p.id
+
+    return asyncio.get_event_loop().run_until_complete(_seed())
+
+
+def test_webhook_payment_approved_updates_status(client, db_factory) -> None:
+    external_ref = "webhook-ref-approved"
+    payment_id = _seed_payment(db_factory, external_ref)
+
+    info = MpPaymentInfo(
+        payment_id="mp-pay-999",
+        status="approved",
+        status_detail="accredited",
+        external_reference=external_ref,
+        transaction_amount=49.0,
+    )
+    with patch("app.api.payments.get_payment_info", return_value=info):
+        res = client.post("/api/payments/webhook", json={
+            "type": "payment",
+            "data": {"id": "mp-pay-999"},
+        })
+    assert res.status_code == 200
+
+    # Verificamos en DB
+    import asyncio
+
+    async def _check():
+        async with db_factory() as s:
+            r = await s.execute(
+                select(Payment).where(Payment.id == payment_id)
+            )
+            return r.scalar_one()
+
+    p = asyncio.get_event_loop().run_until_complete(_check())
+    assert p.status == PaymentStatus.PAID
+    assert p.mp_payment_id == "mp-pay-999"
+    assert p.paid_at is not None
+
+
+def test_webhook_unknown_external_reference_returns_204(client) -> None:
+    info = MpPaymentInfo(
+        payment_id="mp-pay-orphan",
+        status="approved",
+        status_detail="ok",
+        external_reference="ref-that-doesnt-exist",
+        transaction_amount=49.0,
+    )
+    with patch("app.api.payments.get_payment_info", return_value=info):
+        res = client.post("/api/payments/webhook", json={
+            "type": "payment", "data": {"id": "mp-pay-orphan"},
+        })
+    # No ruido — ack al webhook con 204 igual.
+    assert res.status_code == 200
+
+
+def test_webhook_non_payment_topic_ignored(client) -> None:
+    """Topics tipo `merchant_order` los ignoramos con 204 limpio."""
+    with patch("app.api.payments.get_payment_info") as mock_get:
+        res = client.post("/api/payments/webhook", json={
+            "type": "merchant_order", "data": {"id": "12345"},
+        })
+        assert mock_get.called is False
+    assert res.status_code == 200
+
+
+def test_webhook_idempotent_duplicate_does_nothing(client, db_factory) -> None:
+    """Webhook duplicado para un Payment ya en `paid` no cambia nada."""
+    external_ref = "webhook-ref-dup"
+    _seed_payment(db_factory, external_ref)
+
+    info = MpPaymentInfo(
+        payment_id="mp-pay-dup",
+        status="approved",
+        status_detail="accredited",
+        external_reference=external_ref,
+        transaction_amount=49.0,
+    )
+    with patch("app.api.payments.get_payment_info", return_value=info):
+        client.post("/api/payments/webhook", json={
+            "type": "payment", "data": {"id": "mp-pay-dup"},
+        })
+        # Segundo webhook idéntico
+        res = client.post("/api/payments/webhook", json={
+            "type": "payment", "data": {"id": "mp-pay-dup"},
+        })
+    assert res.status_code == 200  # sin error, no-op
+
+
+# ---------------------------------------------------------------------------
+# /api/payments/{external_reference}
+
+
+def test_payment_status_pending_returns_no_report(client, db_factory) -> None:
+    external_ref = "status-ref-pending"
+    _seed_payment(db_factory, external_ref)
+    res = client.get(f"/api/payments/{external_ref}")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["status"] == "pending"
+    assert body["report_id"] is None
+    assert body["report_json"] is None
+
+
+def test_payment_status_not_found_returns_404(client) -> None:
+    res = client.get("/api/payments/does-not-exist")
+    assert res.status_code == 404
