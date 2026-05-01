@@ -164,7 +164,6 @@ export default function VinScanner({ listing, repuve, onResult, onClose }) {
         {stage === 'preview' && (
           <>
             <p>Revisa que el VIN se vea claro y completo en la foto.</p>
-            <canvas ref={canvasRef} className="capture-canvas" />
             <div className="actions">
               <button onClick={retake} className="secondary">Re-tomar</button>
               <button onClick={submitScan} className="primary">Enviar para análisis</button>
@@ -203,8 +202,13 @@ export default function VinScanner({ listing, repuve, onResult, onClose }) {
           </div>
         )}
 
-        {/* canvas oculto para preview cuando no estamos en preview-stage */}
-        {stage !== 'preview' && <canvas ref={canvasRef} style={{ display: 'none' }} />}
+        {/* Canvas único siempre montado: visible en preview, oculto en otros stages.
+            React no debe desmontarlo al cambiar stage o se pierde el dibujo del frame. */}
+        <canvas
+          ref={canvasRef}
+          className={stage === 'preview' ? 'capture-canvas' : ''}
+          style={stage === 'preview' ? undefined : { display: 'none' }}
+        />
       </div>
     </div>
   )

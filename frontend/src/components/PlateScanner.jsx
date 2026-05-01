@@ -221,7 +221,6 @@ export default function PlateScanner({ onResult, onClose }) {
         {stage === 'preview' && (
           <>
             <p>Revisa que la placa se vea clara y completa.</p>
-            <canvas ref={canvasRef} className="capture-canvas" />
             <div className="actions">
               <button onClick={retake} className="secondary">
                 <RefreshCcw size={18} /> Re-tomar
@@ -312,7 +311,13 @@ export default function PlateScanner({ onResult, onClose }) {
           </div>
         )}
 
-        {stage !== 'preview' && <canvas ref={canvasRef} style={{ display: 'none' }} />}
+        {/* Canvas único siempre montado: visible en preview, oculto en otros stages.
+            React no debe desmontarlo al cambiar stage o se pierde el dibujo del frame. */}
+        <canvas
+          ref={canvasRef}
+          className={stage === 'preview' ? 'capture-canvas' : ''}
+          style={stage === 'preview' ? undefined : { display: 'none' }}
+        />
       </div>
     </div>
   )
