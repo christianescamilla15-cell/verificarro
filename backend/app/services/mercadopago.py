@@ -61,6 +61,21 @@ class MpPaymentInfo:
     transaction_amount: float | None
 
 
+@dataclass(frozen=True)
+class PreapprovalResult:
+    """Resultado de crear un preapproval (suscripción mensual) en MP.
+
+    `init_point` es la URL donde el usuario autoriza el cargo recurrente.
+    Una vez autoriza, MP cobra automáticamente cada periodo y manda
+    webhook a nuestro `/api/payments/webhook` con topic=preapproval.
+    """
+
+    preapproval_id: str
+    init_point: str
+    external_reference: str
+    status: str  # 'pending' | 'authorized' | 'paused' | 'cancelled'
+
+
 def _get_sdk():
     """Lazy import del SDK para que tests sin token no fallen al importar."""
     import mercadopago
@@ -148,6 +163,79 @@ async def create_preference(
         init_point=pref["init_point"],
         sandbox_init_point=pref.get("sandbox_init_point", pref["init_point"]),
         external_reference=ext_ref,
+    )
+
+
+async def create_preapproval(
+    *,
+    reason: str,
+    amount_mxn: float,
+    payer_email: str,
+    external_reference: str | None = None,
+    frequency: int = 1,
+    frequency_type: str = "months",
+) -> PreapprovalResult:
+    """Crea un preapproval (suscripción recurrente) en Mercado Pago.
+
+    Una vez autorizado por el usuario en el `init_point`, MP cobra
+    automáticamente cada periodo según `frequency_type`. Webhook con
+    topic=preapproval llega cuando el estado cambia (autorizado /
+    pausado / cancelado).
+
+    Args:
+        reason: descripción visible al usuario en el checkout
+        amount_mxn: monto a cobrar cada periodo
+        payer_email: email del subscriptor (MP necesita dueño)
+        external_reference: nuestro UUID local opcional
+        frequency: número de unidades (1 = mensual)
+        frequency_type: "months" o "days"
+    """
+    settings = get_settings()
+    if not settings.mp_access_token:
+        raise RuntimeError(
+            "MP_ACCESS_TOKEN no configurado. Configúralo en .env o exporta "
+            "como variable de entorno antes de invocar este servicio."
+        )
+
+    ext_ref = external_reference or str(uuid.uuid4())
+
+    payload = {
+        "reason": reason,
+        "external_reference": ext_ref,
+        "payer_email": payer_email,
+        "auto_recurring": {
+            "frequency": frequency,
+            "frequency_type": frequency_type,
+            "transaction_amount": float(amount_mxn),
+            "currency_id": "MXN",
+        },
+        "back_url": settings.mp_success_url,
+        "status": "pending",  # MP setea a authorized cuando el user firma
+    }
+
+    def _sync_create() -> dict[str, Any]:
+        sdk = _get_sdk()
+        return sdk.preapproval().create(payload)
+
+    try:
+        response = await asyncio.to_thread(_sync_create)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("MP preapproval create failed")
+        raise RuntimeError(f"No pude crear la suscripción: {exc}") from exc
+
+    if response.get("status") not in (200, 201):
+        raise RuntimeError(
+            f"MP devolvió error al crear preapproval: "
+            f"status={response.get('status')}, "
+            f"detail={response.get('response')}"
+        )
+
+    pre = response["response"]
+    return PreapprovalResult(
+        preapproval_id=pre["id"],
+        init_point=pre["init_point"],
+        external_reference=ext_ref,
+        status=pre.get("status", "pending"),
     )
 
 

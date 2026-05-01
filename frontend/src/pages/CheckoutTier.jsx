@@ -43,14 +43,18 @@ export default function CheckoutTier() {
       return
     }
     setLoading(true)
-    const res = await api.post('/api/payments/checkout', {
+    // Tiers mensuales (search/dealer) usan preapproval real — MP cobra
+    // automáticamente cada mes. Tiers one-time (basic/premium) usan
+    // preference normal vía paywall modal.
+    const res = await api.post('/api/payments/subscribe', {
       tier,
       payer_email: email,
-      title_hint: `${config.name} (${config.cap})`,
+      name: name || null,
+      phone: phone || null,
     })
     setLoading(false)
     if (!res.ok) {
-      setError(res.error || 'No pudimos iniciar el pago. Intenta de nuevo.')
+      setError(res.error || 'No pudimos iniciar la suscripción. Intenta de nuevo.')
       return
     }
     window.location.href = res.data.init_point

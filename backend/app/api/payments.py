@@ -32,6 +32,8 @@ from app.db.models import Payment, PaymentStatus, ReportRecord, ReportStatus
 from app.db.session import SessionDep
 from app.services.mercadopago import (
     CheckoutPreference,
+    PreapprovalResult,
+    create_preapproval,
     create_preference,
     get_payment_info,
 )
@@ -188,6 +190,70 @@ async def checkout(req: CheckoutRequest, session: SessionDep) -> CheckoutRespons
         external_reference=external_ref,
         init_point=pref.init_point,
         sandbox_init_point=pref.sandbox_init_point,
+        amount_mxn=amount,
+        tier=req.tier,
+    )
+
+
+class SubscribeRequest(BaseModel):
+    """Body de `POST /api/payments/subscribe` — tier mensual real con
+    MP preapproval.
+
+    Solo válido para tier `search` ($199/mes) y `dealer` ($1499/mes).
+    Para tier basic/premium (one-time) usar `/api/payments/checkout`.
+    """
+
+    tier: str = Field(pattern=r"^(search|dealer)$")
+    payer_email: str = Field(min_length=5, max_length=255)
+    name: str | None = Field(default=None, max_length=120)
+    phone: str | None = Field(default=None, max_length=32)
+
+
+class SubscribeResponse(BaseModel):
+    preapproval_id: str
+    init_point: str
+    external_reference: str
+    amount_mxn: float
+    tier: str
+
+
+@router.post("/payments/subscribe", response_model=SubscribeResponse)
+async def subscribe(req: SubscribeRequest) -> SubscribeResponse:
+    """Crea una suscripción mensual real con MP preapproval.
+
+    Diferente a `/api/payments/checkout` (one-time payment): este crea
+    un preapproval que MP cobra automáticamente cada mes hasta que el
+    usuario cancele.
+
+    El webhook de preapproval (topic="preapproval") llega cuando el
+    usuario autoriza, MP cobra exitosamente, o el usuario pausa/cancela.
+    Por ahora ese handler está pendiente — la activación operacional
+    sigue siendo manual hasta confirmar el flujo end-to-end.
+    """
+    settings = get_settings()
+    amount = _amount_for_tier(req.tier, settings)
+
+    reason_label = "Búsqueda activa" if req.tier == "search" else "Dealer / Lotero"
+    reason = f"Verificarro {reason_label} — {req.tier}"
+
+    try:
+        result: PreapprovalResult = await create_preapproval(
+            reason=reason,
+            amount_mxn=amount,
+            payer_email=req.payer_email.strip(),
+            frequency=1,
+            frequency_type="months",
+        )
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"No pudimos crear la suscripción: {exc}",
+        ) from exc
+
+    return SubscribeResponse(
+        preapproval_id=result.preapproval_id,
+        init_point=result.init_point,
+        external_reference=result.external_reference,
         amount_mxn=amount,
         tier=req.tier,
     )
