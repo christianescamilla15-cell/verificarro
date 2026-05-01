@@ -65,10 +65,26 @@ def compute_score(report: Report) -> tuple[int, RiskLevel, str]:
     """Devuelve (score, risk_level, summary) para el `Report` dado.
 
     No muta el report — solo lee. La función `populate` lo escribe.
+
+    Kill switches: ciertas señales convierten el risk a `red`
+    independientemente del score numérico, porque indican fraude
+    terminal:
+    - REPUVE marca el vehículo como robado
+    - VIN escaneado tiene alerta `high` (placa clonada / VIN distinto
+      al de la descripción / VIN no coincide con REPUVE)
     """
     penalty, reasons = _compute_penalty(report)
     score = max(0, 100 - penalty)
     risk = _risk_level(score)
+
+    # Kill switches → fuerzan red sin importar el score
+    if report.repuve.is_stolen is True:
+        risk = RiskLevel.RED
+    if report.vin_check is not None and any(
+        a.severity == "high" for a in report.vin_check.alerts
+    ):
+        risk = RiskLevel.RED
+
     summary = _build_summary(report, score, risk, reasons)
     return score, risk, summary
 
@@ -104,8 +120,31 @@ def _compute_penalty(report: Report) -> tuple[int, list[str]]:
         reasons=reasons,
     )
     total += _seller_penalty(report.seller_findings, reasons)
+    total += _vin_penalty(report.vin_check, reasons)
 
     return total, reasons
+
+
+def _vin_penalty(vin_check, reasons: list[str]) -> int:
+    """Penaliza alertas del VIN escaneado.
+
+    `high` es penalty -25 (equivalente a REPUVE legal irregular) porque
+    indica posible clonación de placa — uno de los fraudes más caros.
+    `medium` es -8 (año fuera de tolerancia, etc).
+    `low` es 0 (informativo, ej. ±1 año).
+    """
+    if vin_check is None:
+        return 0
+    high = sum(1 for a in vin_check.alerts if a.severity == "high")
+    med = sum(1 for a in vin_check.alerts if a.severity == "medium")
+    if high:
+        reasons.append(
+            f"VIN escaneado discrepa con el anuncio ({high} alerta(s) graves)"
+        )
+        return min(25 * high, 50)
+    if med:
+        return min(8 * med, 16)
+    return 0
 
 
 def _repuve_penalty(repuve: RepuveResult, reasons: list[str]) -> int:

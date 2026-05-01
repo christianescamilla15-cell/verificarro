@@ -149,6 +149,44 @@ class SellerFinding(BaseModel):
     note: str
 
 
+class VinDecodedModel(BaseModel):
+    """Resultado del decoder local del VIN. Espejo Pydantic del
+    `VinDecoded` dataclass de `app.analyzers.vin_decoder`."""
+
+    vin: str
+    valid_format: bool
+    valid_checksum: bool
+    wmi: str
+    country: str | None = None
+    manufacturer: str | None = None
+    manufacturer_aliases: list[str] = Field(default_factory=list)
+    year: int | None = None
+    errors: list[str] = Field(default_factory=list)
+
+
+class VinAlertModel(BaseModel):
+    severity: Literal["low", "medium", "high"]
+    message: str
+
+
+class VinCheck(BaseModel):
+    """Resultado de comparar el VIN escaneado contra el anuncio."""
+
+    decoded: VinDecodedModel
+    matches_listing: bool
+    alerts: list[VinAlertModel] = Field(default_factory=list)
+    vin_in_description: str | None = None
+    scanned_at: datetime = Field(default_factory=_utc_now)
+
+
+class VinCheckRequest(BaseModel):
+    """Body de `POST /api/vin/check`."""
+
+    vin: str = Field(min_length=10, max_length=24)
+    listing: ListingData
+    repuve: RepuveResult | None = None
+
+
 class Report(BaseModel):
     score: int = Field(ge=0, le=100)
     risk_level: RiskLevel
@@ -159,9 +197,12 @@ class Report(BaseModel):
     photo_findings: list[PhotoFinding] = Field(default_factory=list)
     description_findings: list[DescriptionFinding] = Field(default_factory=list)
     seller_findings: list[SellerFinding] = Field(default_factory=list)
+    vin_check: VinCheck | None = None
     questions_for_seller: list[str] = Field(default_factory=list)
     generated_at: datetime = Field(default_factory=_utc_now)
 
 
 AnalyzeRequest.model_rebuild()
 RepuveManual.model_rebuild()
+VinCheck.model_rebuild()
+VinCheckRequest.model_rebuild()

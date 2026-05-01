@@ -115,12 +115,18 @@ def test_multiple_high_findings_lands_yellow() -> None:
 
 
 def test_stolen_vehicle_drops_to_red() -> None:
+    """Vehículo robado fuerza red por kill switch, aunque score sea 50.
+
+    El penalty es -50, score quedaría en 50 (yellow numéricamente),
+    pero el kill switch del scoring escala a red automáticamente —
+    un auto robado nunca debe mostrarse como yellow.
+    """
     rep = _base_report(
         repuve=RepuveResult(queried=True, is_stolen=True, raw_status="robado"),
     )
     score, risk, summary = compute_score(rep)
-    # 100 - 50 = 50 → yellow on its own
     assert score == 50
+    assert risk == RiskLevel.RED  # kill switch
     assert "ROBADO" in summary
 
 
@@ -139,6 +145,62 @@ def test_stolen_plus_findings_lands_red() -> None:
     score, risk, _ = compute_score(rep)
     assert score < _GREEN_PARTITION()
     assert risk == RiskLevel.RED
+
+
+def test_vin_high_alert_kill_switch_forces_red() -> None:
+    """Una alerta high en vin_check (placa clonada, VIN no coincide)
+    fuerza red por kill switch, aunque el score numérico esté en
+    rango green/yellow."""
+    from app.models.report import (
+        VinAlertModel,
+        VinCheck,
+        VinDecodedModel,
+    )
+    rep = _base_report(
+        vin_check=VinCheck(
+            decoded=VinDecodedModel(
+                vin="5YFEPRAE0LP000001",
+                valid_format=True, valid_checksum=True,
+                wmi="5YF", country="USA", manufacturer="Toyota",
+                year=2020,
+            ),
+            matches_listing=False,
+            alerts=[VinAlertModel(
+                severity="high",
+                message="VIN físico es Toyota pero anuncio dice Honda. POSIBLE PLACA CLONADA",
+            )],
+        ),
+    )
+    score, risk, _ = compute_score(rep)
+    # Penalty -25 → score 75 (verde numéricamente) pero kill switch escala
+    assert score == 75
+    assert risk == RiskLevel.RED
+
+
+def test_vin_low_alert_no_kill_switch() -> None:
+    """Una alerta low (año ±1) NO dispara el kill switch."""
+    from app.models.report import (
+        VinAlertModel,
+        VinCheck,
+        VinDecodedModel,
+    )
+    rep = _base_report(
+        vin_check=VinCheck(
+            decoded=VinDecodedModel(
+                vin="2HGFC2F65JH500001",
+                valid_format=True, valid_checksum=True,
+                wmi="2HG", country="Canadá", manufacturer="Honda",
+                year=2018,
+            ),
+            matches_listing=True,
+            alerts=[VinAlertModel(
+                severity="low",
+                message="Diferencia de 1 año normal por fechas de fabricación",
+            )],
+        ),
+    )
+    score, risk, _ = compute_score(rep)
+    assert risk == RiskLevel.GREEN
 
 
 def test_too_cheap_red_flag() -> None:
@@ -193,7 +255,8 @@ def test_populate_writes_score_and_risk() -> None:
     out = populate(rep)
     assert out is rep  # same instance
     assert rep.score == 50
-    assert rep.risk_level == RiskLevel.YELLOW
+    # Kill switch: REPUVE robado → red, aunque score sea 50 (yellow num).
+    assert rep.risk_level == RiskLevel.RED
     assert rep.summary  # non-empty
 
 

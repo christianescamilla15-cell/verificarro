@@ -18,6 +18,7 @@ from app.analyzers import (
     price_estimator,
     scoring,
     seller_analyzer,
+    vin_check as vin_check_module,
 )
 from app.scrapers import mercadolibre, ml_search, repuve
 
@@ -36,6 +37,7 @@ async def run_pipeline(req: AnalyzeRequest) -> Report:
     )
     description_findings = description_analyzer.analyze(listing.description)
     seller_findings = seller_analyzer.analyze(listing)
+    vin_check = _maybe_run_vin_check(req, listing, repuve)
 
     report = Report(
         # Placeholder; `scoring.populate` lo sobreescribe a continuación.
@@ -48,6 +50,7 @@ async def run_pipeline(req: AnalyzeRequest) -> Report:
         photo_findings=photo_findings,
         description_findings=description_findings,
         seller_findings=seller_findings,
+        vin_check=vin_check,
         questions_for_seller=[
             "¿Tienes la factura original y el endoso completo?",
             "¿Me dejas verificarlo en una agencia o con mi mecánico?",
@@ -55,6 +58,43 @@ async def run_pipeline(req: AnalyzeRequest) -> Report:
         ],
     )
     return scoring.populate(report)
+
+
+def _maybe_run_vin_check(
+    req: AnalyzeRequest, listing: ListingData, repuve: RepuveResult
+):
+    """Si la request trae VIN, corre el check + integra al Report.
+
+    Si NO hay VIN escaneado pero la descripción del anuncio menciona
+    uno, el `vin_check_module.check` lo extrae y lo regresa en
+    `vin_in_description`. Por eso siempre vale la pena pasar el VIN
+    cuando esté disponible.
+
+    Importamos aquí porque `app.api.analyze` ya tiene un converter
+    dataclass→Pydantic; lo replicamos en línea para no crear
+    dependencia circular.
+    """
+    if not req.vin:
+        return None
+    from app.models.report import (
+        VinAlertModel,
+        VinCheck,
+        VinDecodedModel,
+    )
+
+    result = vin_check_module.check(
+        raw_vin=req.vin,
+        listing=listing,
+        repuve=repuve,
+    )
+    return VinCheck(
+        decoded=VinDecodedModel(**result.decoded.__dict__),
+        matches_listing=result.matches_listing,
+        alerts=[VinAlertModel(severity=a.severity, message=a.message)
+                for a in result.alerts],
+        vin_in_description=result.vin_in_description,
+        scanned_at=result.scanned_at,
+    )
 
 
 async def _resolve_listing(req: AnalyzeRequest) -> ListingData:
