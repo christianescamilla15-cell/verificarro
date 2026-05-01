@@ -38,6 +38,7 @@ import logging
 import random
 import re
 import time
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from app.config import get_settings
@@ -170,30 +171,40 @@ async def _run_query(plate: str | None, vin: str | None) -> RepuveResult:
         "--disable-blink-features=AutomationControlled",
         "--disable-features=IsolateOrigins,site-per-process",
     ]
-    launch_kwargs = {
-        "headless": settings.playwright_headless,
-        "args": launch_args,
-    }
+
     # Proxy residencial (toggle por env var) — sube tasa éxito a ~88%
+    proxy_config = None
     if settings.proxy_url:
-        launch_kwargs["proxy"] = {"server": settings.proxy_url}
+        proxy_config = {"server": settings.proxy_url}
         logger.warning("Usando proxy: %s", settings.proxy_url.split("@")[-1])
 
+    # Browser context PERSISTENTE: reusa profile dir entre runs para
+    # acumular cookies / localStorage / IndexedDB. Después de algunas
+    # consultas, Google empieza a ver "este browser tiene historia
+    # con sus servicios" y sube el trust score.
+    profile_dir = settings.playwright_profile_dir
+    Path(profile_dir).mkdir(parents=True, exist_ok=True)
+
+    context_kwargs = {
+        "user_data_dir": profile_dir,
+        "headless": settings.playwright_headless,
+        "args": launch_args,
+        "user_agent": _USER_AGENT,
+        "locale": "es-MX",
+        "viewport": {"width": 1280, "height": 900},
+        "ignore_https_errors": True,
+        "timezone_id": "America/Mexico_City",
+        "geolocation": {"latitude": 19.4326, "longitude": -99.1332},
+        "permissions": ["geolocation"],
+    }
+    if proxy_config:
+        context_kwargs["proxy"] = proxy_config
+
     async with async_playwright() as p:
-        browser = await p.chromium.launch(**launch_kwargs)
+        # launch_persistent_context devuelve directamente un context
+        # (no hay browser separado en este modo).
+        context = await p.chromium.launch_persistent_context(**context_kwargs)
         try:
-            context = await browser.new_context(
-                user_agent=_USER_AGENT,
-                locale="es-MX",
-                viewport={"width": 1280, "height": 900},
-                ignore_https_errors=True,
-                # Timezone realista MX para que match el locale
-                timezone_id="America/Mexico_City",
-                # Geolocation Cd. de México (no se usa en REPUVE pero
-                # ayuda contra fingerprinting)
-                geolocation={"latitude": 19.4326, "longitude": -99.1332},
-                permissions=["geolocation"],
-            )
             page = await context.new_page()
             # Aplicar stealth ANTES de navegar a cualquier URL
             await apply_stealth(page)
@@ -255,7 +266,9 @@ async def _run_query(plate: str | None, vin: str | None) -> RepuveResult:
                 captcha_used=captcha_solved,
             )
         finally:
-            await browser.close()
+            # En launch_persistent_context cerramos el context (no hay
+            # browser separado). El profile dir persiste para el próximo run.
+            await context.close()
 
 
 async def _humanize_mouse(page: "Page") -> None:
@@ -320,12 +333,20 @@ async def _has_recaptcha_error(page: "Page") -> bool:
 
 
 async def _click_submit(page: "Page", _input_selector: str) -> None:
-    """Click en el primer botón visible cuyo texto sea Buscar / Consultar.
+    """Click humanizado en el botón Buscar/Consultar.
 
-    El SPA de Angular no envuelve los inputs de búsqueda en `<form>` HTML —
-    el envío es por click handler. La alerta "POR FAVOR, INGRESE SÓLO UN
-    CRITERIO DE BÚSQUEDA" que se ve siempre es texto INFORMATIVO permanente,
-    no respuesta a un submit.
+    Google reCaptcha analiza timing de eventos: un click instantáneo
+    (mousedown→mouseup en el mismo ms) o sin hover previo es señal bot.
+    Patrón humano que aplicamos:
+
+      1. Scroll the button into view (real users hacen scroll)
+      2. Hover sobre el botón (real users hover antes de click)
+      3. Pausa random 200-500ms (decisión humana)
+      4. Mouse move al centro del botón con steps (no teleport)
+      5. Click con `delay` (mousedown sostenido 80-180ms, real)
+
+    El SPA de Angular no envuelve los inputs en `<form>` — submit es
+    por click handler. Por eso es crítico que el click se vea humano.
     """
     accepted = {t.lower() for t in _SELECTORS["submit_btn_text"]}
     buttons = page.locator("button:visible")
@@ -334,10 +355,37 @@ async def _click_submit(page: "Page", _input_selector: str) -> None:
         btn = buttons.nth(i)
         try:
             text = (await btn.inner_text()).strip().lower()
-            if text and any(label in text for label in accepted):
+            if not text or not any(label in text for label in accepted):
+                continue
+
+            # 1. Scroll into view
+            try:
+                await btn.scroll_into_view_if_needed(timeout=2000)
+            except Exception:  # noqa: BLE001
+                pass
+
+            # 2. Hover (mouse moves to button bounding box center)
+            try:
+                box = await btn.bounding_box()
+                if box:
+                    cx = box["x"] + box["width"] / 2
+                    cy = box["y"] + box["height"] / 2
+                    # Move with bezier-like steps (no teleport)
+                    await page.mouse.move(cx, cy, steps=random.randint(10, 25))
+            except Exception:  # noqa: BLE001
+                pass
+
+            # 3. Pausa "decisión humana"
+            await page.wait_for_timeout(random.randint(200, 500))
+
+            # 4. Click con delay (mousedown sostenido)
+            try:
+                await btn.click(delay=random.randint(80, 180))
+            except Exception:  # noqa: BLE001
+                # Fallback al click simple si falla el con delay
                 await btn.click()
-                return
-        except Exception:
+            return
+        except Exception:  # noqa: BLE001
             continue
 
 

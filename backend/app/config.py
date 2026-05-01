@@ -50,6 +50,15 @@ class Settings(BaseSettings):
     # Vacío por default (uso direct connection).
     proxy_url: str = Field(default="", alias="PROXY_URL")
 
+    # Directorio del browser profile persistente — guarda cookies,
+    # localStorage, IndexedDB entre runs. Después de algunas consultas,
+    # Google ve historia "humana" en el browser y sube el trust score.
+    # Se incluye en .gitignore (artefacto local).
+    playwright_profile_dir: str = Field(
+        default="./.playwright-profile",
+        alias="PLAYWRIGHT_PROFILE_DIR",
+    )
+
     # --- Database ---
     # Default: aiosqlite local file. En Render: postgresql+asyncpg://...
     database_url: str = Field(

@@ -150,6 +150,103 @@ Object.defineProperty(window, 'outerHeight', {
     get: () => window.innerHeight,
     configurable: true,
 });
+
+// === Audio context fingerprint ===
+// Google evalúa el "audio fingerprint" comparando el resultado de
+// OfflineAudioContext.startRendering() — en GPU+OS reales hay variaciones
+// micro de punto flotante; en headless es determinista (mismo hash siempre)
+// lo que delata bot. Patch: inyectamos ruido imperceptible para que cada
+// session tenga su huella única pero plausible.
+try {
+    const OfflineAudioCtx = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+    if (OfflineAudioCtx) {
+        const origStart = OfflineAudioCtx.prototype.startRendering;
+        OfflineAudioCtx.prototype.startRendering = function () {
+            return origStart.apply(this, arguments).then(buf => {
+                try {
+                    for (let ch = 0; ch < buf.numberOfChannels; ch++) {
+                        const data = buf.getChannelData(ch);
+                        for (let i = 0; i < data.length; i++) {
+                            // Noise floor ~1e-7: imperceptible auditivamente
+                            // pero rompe el hash determinista
+                            data[i] = data[i] + (Math.random() - 0.5) * 1e-7;
+                        }
+                    }
+                } catch (e) {}
+                return buf;
+            });
+        };
+    }
+} catch (e) {}
+
+// === Canvas fingerprint ===
+// Mismo principio: Google compara el hash del rendered canvas. Headless
+// produce un hash determinista (mismo browser → mismo pixel-by-pixel).
+// Patch: noise sutil al pixel data para variar el hash sin alterar
+// visualmente el contenido.
+try {
+    const origToDataURL = HTMLCanvasElement.prototype.toDataURL;
+    HTMLCanvasElement.prototype.toDataURL = function (...args) {
+        const ctx = this.getContext('2d');
+        if (ctx) {
+            try {
+                const w = this.width;
+                const h = this.height;
+                if (w > 0 && h > 0 && w * h < 2_000_000) {  // skip canvases enormes
+                    const imgData = ctx.getImageData(0, 0, w, h);
+                    // Pequeña perturbación en 1 de cada 50 píxeles
+                    for (let i = 0; i < imgData.data.length; i += 200) {
+                        imgData.data[i] = imgData.data[i] ^ 1;  // flip LSB
+                    }
+                    ctx.putImageData(imgData, 0, 0);
+                }
+            } catch (e) {}
+        }
+        return origToDataURL.apply(this, args);
+    };
+} catch (e) {}
+
+// === Battery API ===
+// Real Chrome expone navigator.getBattery() que devuelve un objeto con
+// nivel/cargando. Headless puede no implementarlo o dar default. Faking
+// uno con valores plausibles humanos (laptop a 75% no cargando):
+try {
+    if (!navigator.getBattery) {
+        navigator.getBattery = function () {
+            return Promise.resolve({
+                charging: false,
+                chargingTime: Infinity,
+                dischargingTime: 14400,  // 4 horas — laptop normal
+                level: 0.78,
+                addEventListener: () => {},
+                removeEventListener: () => {},
+                onchargingchange: null,
+                onchargingtimechange: null,
+                ondischargingtimechange: null,
+                onlevelchange: null,
+            });
+        };
+    }
+} catch (e) {}
+
+// === MediaDevices enumerateDevices ===
+// Headless reporta lista vacía; real Chrome reporta cámara/mic etc.
+try {
+    if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
+        const origEnum = navigator.mediaDevices.enumerateDevices.bind(navigator.mediaDevices);
+        navigator.mediaDevices.enumerateDevices = function () {
+            return origEnum().then(devices => {
+                if (devices.length > 0) return devices;
+                // Inventar 2-3 devices típicos
+                return [
+                    { deviceId: 'default', kind: 'audioinput', label: '', groupId: 'g1' },
+                    { deviceId: 'default', kind: 'audiooutput', label: '', groupId: 'g1' },
+                    { deviceId: 'cam0', kind: 'videoinput', label: '', groupId: 'g2' },
+                ];
+            });
+        };
+    }
+} catch (e) {}
 """
 
 

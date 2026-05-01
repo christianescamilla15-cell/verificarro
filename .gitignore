@@ -39,6 +39,7 @@ npm-debug.log*
 playwright-report/
 test-results/
 .playwright/
+backend/.playwright-profile/
 
 # Reports / cache
 backend/reports/
