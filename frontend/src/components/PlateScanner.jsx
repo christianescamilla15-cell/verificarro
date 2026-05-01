@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   X, Camera, Image as ImageIcon, Keyboard, ScanLine,
-  AlertTriangle, ArrowLeft, RefreshCcw, Send,
+  AlertTriangle, ArrowLeft, RefreshCcw, Send, FileText, CheckCircle2,
 } from 'lucide-react'
 import { api } from '../lib/api.js'
 import Spinner from './Spinner.jsx'
@@ -27,7 +27,7 @@ export default function PlateScanner({ onResult, onClose }) {
   const streamRef = useRef(null)
   const autoCaptureCancelRef = useRef(false)
   const [stage, setStage] = useState('mode')
-  // mode | camera | scanning | manual | error
+  // mode | camera | scanning | invoice_detected | manual | error
   const [error, setError] = useState(null)
   const [cameraError, setCameraError] = useState(null)
   const [manualPlate, setManualPlate] = useState('')
@@ -35,6 +35,9 @@ export default function PlateScanner({ onResult, onClose }) {
   const [manualKind, setManualKind] = useState('plate')
   const [captureCountdown, setCaptureCountdown] = useState(0)
   const [captureAttempt, setCaptureAttempt] = useState(0)
+  // Smart scanner: cuando detecta factura, almacenamos los datos
+  // extraídos y mostramos un panel especial pidiendo placa/VIN.
+  const [invoiceData, setInvoiceData] = useState(null)
 
   function stopStream() {
     if (streamRef.current) {
@@ -131,6 +134,16 @@ export default function PlateScanner({ onResult, onClose }) {
     if (autoCaptureCancelRef.current) return false
 
     if (res.ok) {
+      // Smart scanner detectó factura — flujo especial: mostrar datos
+      // extraídos y pedir al usuario escanear placa/VIN para completar.
+      if (res.data.detected_type === 'invoice' && !res.data.report_id) {
+        autoCaptureCancelRef.current = true
+        stopStream()
+        setInvoiceData(res.data.invoice_extra || {})
+        setStage('invoice_detected')
+        return true
+      }
+      // Plate o VIN normal → preview
       stopStream()
       autoCaptureCancelRef.current = true
       onResult(res.data)
@@ -168,6 +181,12 @@ export default function PlateScanner({ onResult, onClose }) {
       if (!res.ok) {
         setError(res.error || 'No pudimos leer la placa')
         setStage('error')
+        return
+      }
+      // Smart scanner detectó factura
+      if (res.data.detected_type === 'invoice' && !res.data.report_id) {
+        setInvoiceData(res.data.invoice_extra || {})
+        setStage('invoice_detected')
         return
       }
       onResult(res.data)
@@ -289,7 +308,63 @@ export default function PlateScanner({ onResult, onClose }) {
         )}
 
         {stage === 'scanning' && (
-          <Spinner message="Leyendo placa con IA y consultando REPUVE… (~5-15 segundos)" />
+          <Spinner message="Leyendo con IA y consultando REPUVE… (~5-15 segundos)" />
+        )}
+
+        {stage === 'invoice_detected' && (
+          <div className="invoice-detected">
+            <div className="invoice-detected-banner">
+              <CheckCircle2 size={22} />
+              <strong>Detectamos una factura del auto</strong>
+            </div>
+            <p className="muted">
+              Extrajimos estos datos del CFDI. Para completar el reporte
+              necesito que también escanees la placa o el NIV del auto.
+            </p>
+            <div className="invoice-detected-fields">
+              {invoiceData?.folio_fiscal_uuid && (
+                <div className="invoice-field">
+                  <span className="invoice-field-label">UUID CFDI</span>
+                  <code className="invoice-field-value">{invoiceData.folio_fiscal_uuid}</code>
+                </div>
+              )}
+              {invoiceData?.rfc_emisor && (
+                <div className="invoice-field">
+                  <span className="invoice-field-label">RFC Emisor</span>
+                  <code className="invoice-field-value">{invoiceData.rfc_emisor}</code>
+                </div>
+              )}
+              {invoiceData?.rfc_receptor && (
+                <div className="invoice-field">
+                  <span className="invoice-field-label">RFC Receptor</span>
+                  <code className="invoice-field-value">{invoiceData.rfc_receptor}</code>
+                </div>
+              )}
+              {(invoiceData?.marca || invoiceData?.modelo || invoiceData?.año) && (
+                <div className="invoice-field">
+                  <span className="invoice-field-label">Auto en factura</span>
+                  <span className="invoice-field-value">
+                    {[invoiceData?.marca, invoiceData?.modelo, invoiceData?.año].filter(Boolean).join(' ')}
+                  </span>
+                </div>
+              )}
+              {invoiceData?.total && (
+                <div className="invoice-field">
+                  <span className="invoice-field-label">Total factura</span>
+                  <span className="invoice-field-value">${Number(invoiceData.total).toLocaleString('es-MX')} MXN</span>
+                </div>
+              )}
+            </div>
+            <p className="muted small">
+              Estos datos se cross-validarán contra el listing y SAT cuando
+              desbloquees el reporte completo.
+            </p>
+            <div className="actions">
+              <button onClick={() => setStage('mode')} className="primary">
+                <Camera size={18} /> Ahora escanea la placa o VIN
+              </button>
+            </div>
+          </div>
         )}
 
         {stage === 'manual' && (

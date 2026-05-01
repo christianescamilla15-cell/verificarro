@@ -794,6 +794,58 @@ button.icon-button:hover { color: var(--text-primary); background: var(--bg-card
   animation: scan-pulse 2.4s ease-in-out infinite;
 }
 
+/* ===== Invoice detected (smart scanner devolvió tipo=invoice) ===== */
+.invoice-detected {
+  padding: var(--space-2) 0;
+}
+.invoice-detected-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  background: var(--success-soft);
+  border: 1px solid var(--success-border);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-3);
+  color: var(--success-text);
+}
+.invoice-detected-banner svg { color: var(--success-text); }
+.invoice-detected-fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  background: var(--bg-app);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  margin: var(--space-4) 0;
+}
+.invoice-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.invoice-field-label {
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary);
+  font-weight: var(--fw-medium);
+}
+.invoice-field-value {
+  font-size: var(--fs-sm);
+  color: var(--text-primary);
+  word-break: break-all;
+}
+code.invoice-field-value {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  background: var(--bg-card);
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  display: inline-block;
+}
+
 /* ===== Auto-capture countdown overlay ===== */
 .capture-countdown {
   position: absolute;
