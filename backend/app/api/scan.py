@@ -33,7 +33,7 @@ from pydantic import BaseModel, Field
 from app.db.models import ReportRecord, ReportStatus
 from app.db.session import SessionDep
 from app.services.pipeline import run_preview_pipeline
-from app.services.plate_ocr import scan_plate_from_image
+from app.services.smart_scanner import smart_scan
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +79,61 @@ class PlateScanResponse(BaseModel):
     ocr_notes: str | None = None
     repuve: dict[str, Any]
     consultation_links: list[dict[str, Any]] = []
+    # Smart scanner: tipo detectado cuando la imagen no era placa
+    detected_type: Literal["plate", "vin", "invoice"] | None = None
+    invoice_extra: dict[str, Any] | None = None
+
+
+class SmartScanResponse(BaseModel):
+    """Respuesta de `/api/scan/auto` — clasifica la imagen sin disparar
+    todavía el pipeline preview. El frontend recibe el `type` detectado y
+    decide si redirige a `/scan/plate` (con `manual_plate`/`manual_vin`)
+    o a un flow distinto (futuro: `/scan/invoice` para Fase B+C).
+    """
+
+    type: Literal["plate", "vin", "invoice", "unknown"]
+    value: str
+    confidence: Literal["low", "medium", "high"]
+    notes: str
+    extra: dict[str, Any] = {}
+
+
+@router.post("/scan/auto", response_model=SmartScanResponse)
+async def scan_auto(body: PlateScanRequest) -> SmartScanResponse:
+    """Smart scanner — clasifica la imagen sin disparar el pipeline.
+
+    El usuario apunta la cámara a CUALQUIER cosa relevante (placa, VIN
+    sticker, factura) y este endpoint devuelve qué detectó. El frontend
+    decide qué flow seguir:
+
+    - type=plate / vin → llamar `/scan/plate` con manual_plate / manual_vin
+    - type=invoice → mostrar datos extraídos al usuario y opcionalmente
+      pedirle escanear la placa o VIN para complementar
+    - type=unknown → pedirle re-foto
+
+    Costo: ~$0.005-0.008 USD por scan (single Claude call).
+    """
+    if not body.image_base64:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Smart scan requiere image_base64",
+        )
+    try:
+        result = await smart_scan(body.image_base64, body.media_type)
+    except RuntimeError as exc:
+        logger.exception("Smart scan falló")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"No pude clasificar la imagen: {exc}",
+        ) from exc
+
+    return SmartScanResponse(
+        type=result.type,
+        value=result.value,
+        confidence=result.confidence,
+        notes=result.notes,
+        extra=result.extra,
+    )
 
 
 @router.post("/scan/plate", response_model=PlateScanResponse)
@@ -86,8 +141,30 @@ async def scan_plate(
     body: PlateScanRequest, session: SessionDep
 ) -> PlateScanResponse:
     """Resuelve la placa, corre preview pipeline y persiste ReportRecord."""
-    plate, vin, ocr_conf, ocr_notes = await _resolve_plate_and_vin(body)
+    plate, vin, ocr_conf, ocr_notes, detected_type, invoice_extra = (
+        await _resolve_plate_and_vin(body)
+    )
     if not plate and not vin:
+        # Si smart scan detectó factura pero no placa/VIN, devolvemos
+        # un response especial con detected_type=invoice para que el
+        # frontend muestre los datos extraídos sin error.
+        if detected_type == "invoice":
+            return PlateScanResponse(
+                report_id="",
+                plate=None,
+                vin=None,
+                score=0,
+                risk_level="yellow",
+                summary=(
+                    "Detecté que esta foto es una factura, no una placa "
+                    "ni un VIN. Para verificar el auto necesito que también "
+                    "escanees la placa o el NIV. La factura la podemos "
+                    "validar después al desbloquear el reporte completo."
+                ),
+                repuve={"queried": False, "raw_status": "no_plate_provided"},
+                detected_type="invoice",
+                invoice_extra=invoice_extra,
+            )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
@@ -136,6 +213,8 @@ async def scan_plate(
             link.model_dump(mode="json")
             for link in report.consultation_links
         ],
+        detected_type=detected_type,
+        invoice_extra=invoice_extra,
     )
 
 
@@ -145,26 +224,58 @@ async def scan_plate(
 
 async def _resolve_plate_and_vin(
     body: PlateScanRequest,
-) -> tuple[str | None, str | None, Literal["low", "medium", "high"] | None, str | None]:
-    """Decide la fuente: foto (OCR) > placa manual > VIN manual."""
+) -> tuple[
+    str | None,
+    str | None,
+    Literal["low", "medium", "high"] | None,
+    str | None,
+    Literal["plate", "vin", "invoice"] | None,
+    dict | None,
+]:
+    """Decide la fuente: foto (smart scanner) > placa manual > VIN manual.
+
+    Devuelve `(plate, vin, confidence, notes, detected_type, invoice_extra)`.
+
+    Cuando la imagen se procesa con smart scanner:
+    - Si detecta `plate` → plate poblado, detected_type=plate
+    - Si detecta `vin` → vin poblado, detected_type=vin
+    - Si detecta `invoice` → ambos None pero invoice_extra con campos
+    - Si detecta `unknown` → 400 con notas
+    """
     if body.image_base64:
         try:
-            scan = await scan_plate_from_image(body.image_base64, body.media_type)
+            result = await smart_scan(body.image_base64, body.media_type)
         except RuntimeError as exc:
-            logger.exception("Plate OCR falló")
+            logger.exception("Smart scan falló")
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail=f"No pude procesar la imagen: {exc}",
             ) from exc
-        if not scan.plate:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=(
-                    f"No pude leer la placa en la foto. {scan.notes} "
-                    "Re-toma la foto o ingresa la placa manualmente."
-                ),
+
+        if result.type == "plate" and result.value and 5 <= len(result.value) <= 7:
+            return (
+                result.value, None, result.confidence, result.notes,
+                "plate", None,
             )
-        return scan.plate, None, scan.confidence, scan.notes
+        if result.type == "vin" and result.value and len(result.value) == 17:
+            return (
+                None, result.value, result.confidence, result.notes,
+                "vin", None,
+            )
+        if result.type == "invoice":
+            # Factura detectada — devuelve invoice_extra para que el
+            # caller maneje el flow especial (mostrar datos extraídos
+            # y pedir escaneo de placa o VIN para complementar).
+            return None, None, None, None, "invoice", result.extra
+
+        # Unknown o validación fallida (placa muy corta, VIN no 17, etc.)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"No pude reconocer placa, VIN ni factura en la foto. "
+                f"{result.notes} Re-toma la foto o ingresa los datos manualmente."
+            ),
+        )
 
     if body.manual_plate:
         plate = _normalize(body.manual_plate)
@@ -173,7 +284,7 @@ async def _resolve_plate_and_vin(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="La placa debe tener entre 5 y 7 caracteres alfanuméricos.",
             )
-        return plate, None, None, None
+        return plate, None, None, None, None, None
 
     if body.manual_vin:
         vin = _normalize(body.manual_vin)
@@ -182,7 +293,7 @@ async def _resolve_plate_and_vin(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="El VIN debe tener exactamente 17 caracteres alfanuméricos.",
             )
-        return None, vin, None, None
+        return None, vin, None, None, None, None
 
     raise HTTPException(
         status_code=status.HTTP_400_BAD_REQUEST,

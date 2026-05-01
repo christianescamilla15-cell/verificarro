@@ -20,6 +20,7 @@ from app.main import app
 from app.models.report import RepuveResult
 from app.services.mercadopago import CheckoutPreference
 from app.services.plate_ocr import PlateScanResult
+from app.services.smart_scanner import SmartScanResult
 
 
 @pytest_asyncio.fixture
@@ -183,13 +184,15 @@ def test_scan_plate_no_input_returns_400(client) -> None:
     assert res.status_code == 400
 
 
-def test_scan_plate_image_calls_ocr(client) -> None:
-    fake_scan = PlateScanResult(
-        plate="ABC123D", confidence="high", notes="placa clara"
+def test_scan_plate_image_uses_smart_scanner_plate(client) -> None:
+    """Smart scanner detecta placa en la foto → flow normal de scan."""
+    fake_scan = SmartScanResult(
+        type="plate", value="ABC123D",
+        confidence="high", notes="placa clara",
     )
     with patch(
-        "app.api.scan.scan_plate_from_image", return_value=fake_scan
-    ) as mock_ocr, patch(
+        "app.api.scan.smart_scan", return_value=fake_scan
+    ) as mock_scan, patch(
         "app.services.pipeline._run_repuve", return_value=_clean_repuve()
     ):
         res = client.post(
@@ -197,8 +200,79 @@ def test_scan_plate_image_calls_ocr(client) -> None:
             json={"image_base64": "x" * 200, "media_type": "image/jpeg"},
         )
     assert res.status_code == 200
-    assert res.json()["ocr_confidence"] == "high"
-    assert mock_ocr.called
+    body = res.json()
+    assert body["plate"] == "ABC123D"
+    assert body["detected_type"] == "plate"
+    assert body["ocr_confidence"] == "high"
+    assert mock_scan.called
+
+
+def test_scan_plate_image_smart_scanner_detects_vin(client) -> None:
+    """Smart scanner detecta VIN → vin populated, no plate."""
+    fake_scan = SmartScanResult(
+        type="vin", value="19XFC2F58JE000001",
+        confidence="high", notes="VIN claro en sticker de puerta",
+    )
+    with patch(
+        "app.api.scan.smart_scan", return_value=fake_scan
+    ), patch(
+        "app.services.pipeline._run_repuve", return_value=_clean_repuve(vin="19XFC2F58JE000001"),
+    ):
+        res = client.post(
+            "/api/scan/plate",
+            json={"image_base64": "x" * 200, "media_type": "image/jpeg"},
+        )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["vin"] == "19XFC2F58JE000001"
+    assert body["plate"] is None
+    assert body["detected_type"] == "vin"
+
+
+def test_scan_plate_image_smart_scanner_detects_invoice(client) -> None:
+    """Smart scanner detecta factura → flow especial sin reporte preview."""
+    fake_scan = SmartScanResult(
+        type="invoice", value="ABCD1234-EF56-7890-ABCD-EF1234567890",
+        confidence="high", notes="factura clara",
+        extra={
+            "folio_fiscal_uuid": "ABCD1234-EF56-7890-ABCD-EF1234567890",
+            "rfc_emisor": "AAA010101AAA",
+            "marca": "Honda", "modelo": "Civic", "año": 2018,
+        },
+    )
+    with patch("app.api.scan.smart_scan", return_value=fake_scan):
+        res = client.post(
+            "/api/scan/plate",
+            json={"image_base64": "x" * 200, "media_type": "image/jpeg"},
+        )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["detected_type"] == "invoice"
+    assert body["invoice_extra"]["rfc_emisor"] == "AAA010101AAA"
+    assert "factura" in body["summary"].lower()
+
+
+def test_scan_auto_endpoint_classifies_image(client) -> None:
+    """`/api/scan/auto` clasifica sin disparar pipeline."""
+    fake_scan = SmartScanResult(
+        type="plate", value="DEF5678",
+        confidence="medium", notes="placa con sombra",
+    )
+    with patch("app.api.scan.smart_scan", return_value=fake_scan):
+        res = client.post(
+            "/api/scan/auto",
+            json={"image_base64": "x" * 200, "media_type": "image/jpeg"},
+        )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["type"] == "plate"
+    assert body["value"] == "DEF5678"
+    assert body["confidence"] == "medium"
+
+
+def test_scan_auto_requires_image(client) -> None:
+    res = client.post("/api/scan/auto", json={})
+    assert res.status_code == 400
 
 
 # ---------------------------------------------------------------------------

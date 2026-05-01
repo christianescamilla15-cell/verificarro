@@ -333,6 +333,21 @@ def _build_analyze_request(
     vin = payment.vin or (preview.vin if preview else None)
     invoice_number = payment.invoice_number
 
+    # invoice_extra está en el preview report_json si el smart scanner
+    # detectó factura previamente — recuperamos para cross-validation.
+    invoice_extra = None
+    if preview and preview.report_json:
+        existing_invoice = preview.report_json.get("invoice")
+        if isinstance(existing_invoice, dict):
+            # Reconstruir extra dict desde campos guardados
+            inv_extra = {}
+            for key in ("rfc_emisor", "rfc_receptor", "marca", "modelo", "año", "niv"):
+                v = existing_invoice.get(key)
+                if v:
+                    inv_extra[key] = v
+            if inv_extra:
+                invoice_extra = inv_extra
+
     if payment.listing_url:
         return AnalyzeRequest(
             url=payment.listing_url,  # type: ignore[arg-type]
@@ -340,12 +355,14 @@ def _build_analyze_request(
             plate=plate,
             vin=vin,
             invoice_number=invoice_number,
+            invoice_extra=invoice_extra,
         )
     return AnalyzeRequest(
         source=Source.MANUAL,
         plate=plate,
         vin=vin,
         invoice_number=invoice_number,
+        invoice_extra=invoice_extra,
         manual_listing=ManualListing(
             title="(escaneado por placa, sin URL del anuncio)",
             price_mxn=0,

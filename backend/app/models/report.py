@@ -47,6 +47,15 @@ class AnalyzeRequest(BaseModel):
         max_length=64,
         description="Número de factura original del auto (folio o UUID CFDI)",
     )
+    invoice_extra: dict | None = Field(
+        default=None,
+        description=(
+            "Datos extraídos vía OCR del CFDI por el smart scanner: "
+            "{folio_fiscal_uuid, rfc_emisor, rfc_receptor, fecha, total, "
+            "marca, modelo, año, niv}. Usado para cross-validation contra "
+            "el listing en `unlock_report_for_payment`."
+        ),
+    )
     source: Source = Source.MERCADOLIBRE
     manual_listing: "ManualListing | None" = None
     repuve_manual: "RepuveManual | None" = Field(

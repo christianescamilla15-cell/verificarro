@@ -195,7 +195,54 @@ async def run_pipeline(req: AnalyzeRequest) -> Report:
     seller_findings = seller_analyzer.analyze(listing)
     vin_check = await _maybe_run_vin_check(req, listing, repuve)
     consultation_links = _build_consultation_links_models(req, listing)
-    invoice_data = _build_invoice_data(req)
+    invoice_data = await _build_invoice_data_with_verification(req)
+
+    # Cross-validación factura vs listing (Fase B)
+    if req.invoice_extra:
+        from app.analyzers.invoice_validator import (
+            validate_invoice_against_listing,
+        )
+        from app.models.report import DescriptionFinding
+
+        invoice_findings = validate_invoice_against_listing(
+            req.invoice_extra,
+            listing_make=listing.make,
+            listing_model=listing.model,
+            listing_year=listing.year,
+            scanned_vin=req.vin,
+        )
+        for f in invoice_findings:
+            description_findings.append(DescriptionFinding(
+                flag="vague_history",
+                severity=f.severity,
+                excerpt=f.message,
+            ))
+
+    # Findings adicionales por SAT verify (Fase C) — si el invoice_data
+    # tiene sat_status, traducimos a finding según gravedad.
+    if invoice_data and invoice_data.sat_status:
+        from app.models.report import DescriptionFinding
+
+        if invoice_data.sat_status == "cancelado":
+            description_findings.append(DescriptionFinding(
+                flag="vague_history",
+                severity="high",
+                excerpt=(
+                    f"SAT confirma que la factura (UUID "
+                    f"{invoice_data.folio_fiscal_uuid}) está CANCELADA. "
+                    "El dueño previo la canceló — verifica por qué con el vendedor."
+                ),
+            ))
+        elif invoice_data.sat_status == "no_encontrado":
+            description_findings.append(DescriptionFinding(
+                flag="vague_history",
+                severity="high",
+                excerpt=(
+                    f"SAT NO ENCUENTRA la factura con UUID "
+                    f"{invoice_data.folio_fiscal_uuid}. Posible factura "
+                    "falsa/inventada — fraude documental obvio."
+                ),
+            ))
 
     report = Report(
         # Placeholder; `scoring.populate` lo sobreescribe a continuación.
@@ -218,32 +265,112 @@ async def run_pipeline(req: AnalyzeRequest) -> Report:
     return scoring.populate(report)
 
 
+async def _build_invoice_data_with_verification(req: AnalyzeRequest):
+    """Construye `InvoiceData` y, si hay datos suficientes, consulta SAT.
+
+    Fase A+B+C combined. Si el invoice_extra trae folio_fiscal_uuid +
+    RFCs + total, dispara SAT verify y enriquece el InvoiceData con
+    `sat_status` y `sat_checked_at`.
+
+    Failure tolerant: SAT no responde → seguimos con sat_status=None
+    (educativo en lugar de validado).
+    """
+    invoice_data = _build_invoice_data(req)
+    if not invoice_data:
+        return None
+
+    extra = req.invoice_extra or {}
+    uuid = invoice_data.folio_fiscal_uuid
+    rfc_emisor = invoice_data.rfc_emisor or extra.get("rfc_emisor")
+    rfc_receptor = invoice_data.rfc_receptor or extra.get("rfc_receptor")
+    total = invoice_data.total_mxn
+
+    if not (uuid and rfc_emisor and rfc_receptor and total):
+        # No hay suficientes datos para SAT verify — devolvemos
+        # InvoiceData sin sat_status (queda como educativo Fase A).
+        return invoice_data
+
+    try:
+        from datetime import UTC, datetime as dt
+        from app.models.report import InvoiceData
+        from app.services.sat_verify import verify_cfdi
+
+        sat = await verify_cfdi(uuid, rfc_emisor, rfc_receptor, float(total))
+    except Exception:  # noqa: BLE001
+        logger.exception("SAT verify falló")
+        return invoice_data
+
+    if not sat.queried or sat.status in (None, "error"):
+        return invoice_data
+
+    # Reemplazamos el InvoiceData con uno enriquecido (immutable Pydantic
+    # → model_copy con update)
+    return invoice_data.model_copy(update={
+        "sat_status": sat.status if sat.status in ("vigente", "cancelado", "no_encontrado") else None,
+        "sat_checked_at": dt.now(UTC),
+    })
+
+
 def _build_invoice_data(req: AnalyzeRequest):
     """Construye `InvoiceData` desde el AnalyzeRequest.
 
-    Fase A: solo guardamos el `invoice_number` declarado por el comprador.
-    Fase B y C agregarán OCR + SAT verification al InvoiceData.
+    Fase A: invoice_number declarado por el comprador → educativo.
+    Fase B: si `invoice_extra` está populado (smart scanner extrajo
+    datos del CFDI), usamos esos campos para enriquecer `InvoiceData`.
     """
     from app.models.report import InvoiceData
 
-    if not req.invoice_number:
+    invoice_number = req.invoice_number.strip() if req.invoice_number else None
+    invoice_extra = req.invoice_extra or {}
+
+    if not invoice_number and not invoice_extra:
         return None
 
-    cleaned = req.invoice_number.strip()
-    if not cleaned:
-        return None
+    # Si invoice_extra tiene folio_fiscal_uuid, lo preferimos como
+    # invoice_number (es el campo más autoritativo).
+    extra_uuid = invoice_extra.get("folio_fiscal_uuid")
+    if extra_uuid and not invoice_number:
+        invoice_number = extra_uuid
 
-    # Detección rudimentaria: si parece UUID v4, lo guardamos como folio
+    # Detección rudimentaria: si parece UUID v4, lo marcamos como folio
     # fiscal CFDI; si no, como invoice_number genérico.
     import re
-    is_uuid = bool(re.match(
-        r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
-        cleaned, re.IGNORECASE,
-    ))
+    folio_fiscal_uuid = None
+    if invoice_number:
+        is_uuid = bool(re.match(
+            r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            invoice_number, re.IGNORECASE,
+        ))
+        if is_uuid:
+            folio_fiscal_uuid = invoice_number
+    if not folio_fiscal_uuid and extra_uuid:
+        folio_fiscal_uuid = extra_uuid
+
+    # Parse fecha si viene en extra
+    fecha_dt = None
+    fecha_raw = invoice_extra.get("fecha")
+    if fecha_raw:
+        try:
+            from datetime import datetime
+            fecha_dt = datetime.fromisoformat(str(fecha_raw))
+        except (ValueError, TypeError):
+            pass
+
+    total_raw = invoice_extra.get("total")
+    total_mxn = None
+    if total_raw is not None:
+        try:
+            total_mxn = float(total_raw)
+        except (TypeError, ValueError):
+            pass
 
     return InvoiceData(
-        invoice_number=cleaned,
-        folio_fiscal_uuid=cleaned if is_uuid else None,
+        invoice_number=invoice_number,
+        folio_fiscal_uuid=folio_fiscal_uuid,
+        rfc_emisor=invoice_extra.get("rfc_emisor"),
+        rfc_receptor=invoice_extra.get("rfc_receptor"),
+        fecha=fecha_dt,
+        total_mxn=total_mxn,
         notes=(
             "Pídele al vendedor la factura ORIGINAL (impresa o XML CFDI). "
             "Verifica que el folio coincida con el que aquí declaraste, que "
