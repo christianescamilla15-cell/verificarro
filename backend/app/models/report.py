@@ -142,6 +142,19 @@ class DescriptionFinding(BaseModel):
     excerpt: str
 
 
+class ConsultationLinkModel(BaseModel):
+    """Link a portal oficial gob.mx pre-llenado para que el usuario
+    consulte él mismo. Espejo Pydantic del dataclass `ConsultationLink`
+    de `app.services.gob_mx_links`."""
+
+    name: str
+    url: str
+    description: str
+    category: Literal["robo", "fiscal", "ambiental", "infracciones"]
+    applicable: bool = True
+    state_scope: str | None = None
+
+
 class ExifFindingModel(BaseModel):
     """Hallazgo de la EXIF de una foto. Espejo Pydantic del dataclass
     `ExifFinding` de `app.analyzers.exif_analyzer`."""
@@ -239,6 +252,7 @@ class Report(BaseModel):
     description_findings: list[DescriptionFinding] = Field(default_factory=list)
     seller_findings: list[SellerFinding] = Field(default_factory=list)
     vin_check: VinCheck | None = None
+    consultation_links: list[ConsultationLinkModel] = Field(default_factory=list)
     questions_for_seller: list[str] = Field(default_factory=list)
     generated_at: datetime = Field(default_factory=_utc_now)
 

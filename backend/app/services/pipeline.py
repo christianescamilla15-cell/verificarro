@@ -31,6 +31,7 @@ from app.analyzers import (
     vin_check as vin_check_module,
 )
 from app.scrapers import mercadolibre, ml_search, repuve
+from app.services.gob_mx_links import build_consultation_links
 from app.services.photo_fetcher import fetch_photos
 
 logger = logging.getLogger(__name__)
@@ -70,6 +71,27 @@ async def run_preview_pipeline(
 
     repuve_result = await _run_repuve(plate=plate, vin=vin)
 
+    # Para el preview gratis incluimos los links de auto-verificación —
+    # alto valor inmediato sin requerir saber la ubicación del auto
+    # (los links federales y estatales aplican o no según el location
+    # que tendremos al desbloquear).
+    from app.models.report import ConsultationLinkModel
+
+    raw_links = build_consultation_links(
+        plate=plate, vin=vin, location=None
+    )
+    preview_links = [
+        ConsultationLinkModel(
+            name=l.name,
+            url=l.url,
+            description=l.description,
+            category=l.category,
+            applicable=l.applicable,
+            state_scope=l.state_scope,
+        )
+        for l in raw_links
+    ]
+
     report = Report(
         score=0,
         risk_level=RiskLevel.RED,
@@ -81,6 +103,7 @@ async def run_preview_pipeline(
         description_findings=[],
         seller_findings=[],
         vin_check=None,
+        consultation_links=preview_links,
         questions_for_seller=[],
     )
     report = scoring.populate(report)
@@ -166,6 +189,7 @@ async def run_pipeline(req: AnalyzeRequest) -> Report:
     description_findings = description_analyzer.analyze(listing.description)
     seller_findings = seller_analyzer.analyze(listing)
     vin_check = await _maybe_run_vin_check(req, listing, repuve)
+    consultation_links = _build_consultation_links_models(req, listing)
 
     report = Report(
         # Placeholder; `scoring.populate` lo sobreescribe a continuación.
@@ -180,6 +204,7 @@ async def run_pipeline(req: AnalyzeRequest) -> Report:
         description_findings=description_findings,
         seller_findings=seller_findings,
         vin_check=vin_check,
+        consultation_links=consultation_links,
         questions_for_seller=[
             "¿Tienes la factura original y el endoso completo?",
             "¿Me dejas verificarlo en una agencia o con mi mecánico?",
@@ -187,6 +212,30 @@ async def run_pipeline(req: AnalyzeRequest) -> Report:
         ],
     )
     return scoring.populate(report)
+
+
+def _build_consultation_links_models(
+    req: AnalyzeRequest, listing: ListingData
+):
+    """Genera los `ConsultationLinkModel` de portales gob.mx."""
+    from app.models.report import ConsultationLinkModel
+
+    raw_links = build_consultation_links(
+        plate=req.plate,
+        vin=req.vin,
+        location=listing.location,
+    )
+    return [
+        ConsultationLinkModel(
+            name=link.name,
+            url=link.url,
+            description=link.description,
+            category=link.category,
+            applicable=link.applicable,
+            state_scope=link.state_scope,
+        )
+        for link in raw_links
+    ]
 
 
 async def _maybe_run_vin_check(
