@@ -83,6 +83,11 @@ class ListingData(BaseModel):
     description: str = ""
     seller_name: str = ""
     seller_account_age_days: int | None = None
+    # --- Trust signals adicionales del vendedor ML (2026-05-01) ---
+    seller_sales_count: int | None = None
+    seller_reputation: Literal["green", "yellow", "red", "unknown"] | None = None
+    seller_other_listings_count: int | None = None
+    seller_profile_url: str | None = None
     photo_urls: list[str] = Field(default_factory=list)
     fetched_at: datetime = Field(default_factory=_utc_now)
 

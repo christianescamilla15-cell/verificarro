@@ -1,30 +1,37 @@
 """Análisis de red flags del vendedor.
 
-Mira `ListingData.seller_name` y `seller_account_age_days` (cuando esté
-disponible) y devuelve `SellerFinding[]`.
+Mira `ListingData.seller_*` y devuelve `SellerFinding[]`. Los signals
+que consume:
 
-## Limitación al cierre del MVP
+- `seller_name` (str): obvio
+- `seller_account_age_days` (int|None): "Lleva X años en Mercado Libre"
+- `seller_sales_count` (int|None): "1.2k+ ventas concretadas"
+- `seller_reputation` ("green"|"yellow"|"red"|None): termómetro ML
+- `seller_other_listings_count` (int|None): "X publicaciones"
+- `seller_profile_url` (str|None): link a perfil
 
-El scraper de D2 hoy NO captura `seller_account_age_days` (queda `None`)
-para listings de concesionarios — para particulares se podría obtener
-navegando al perfil pero eso suma 1 request extra de Playwright por
-reporte. Diferido a post-MVP.
+## Reglas de scoring
 
-Mientras tanto, este analyzer hace lo que puede con lo que tiene:
-- Si `seller_name` viene vacío → flag `other` low (informativo, no
-  necesariamente malo)
-- Si `seller_account_age_days` está disponible y < 30 → `new_account`
-  high
-- Si `seller_account_age_days` < 90 → `new_account` medium
+| Signal                                    | Severidad | Razón |
+|-------------------------------------------|-----------|-------|
+| `account_age_days < 30`                   | high      | Cuenta recién creada para esta venta |
+| `account_age_days < 90`                   | medium    | Cuenta nueva |
+| `seller_reputation == "red"`              | high      | Historial de quejas confirmado |
+| `seller_reputation == "yellow"`           | medium    | Reputación irregular |
+| `sales_count == 0` AND age >= 90          | medium    | Cuenta vieja sin ventas (atípico) |
+| `sales_count is None` (no expuesto)       | low       | Concesionario / privado oculto |
+| `other_listings_count == 1` (solo este)   | low       | Cuenta one-shot (no necesariamente malo) |
+| `seller_name` parece throwaway            | medium    | Patrón regex de cuenta generada |
+| `seller_name` vacío                       | low       | ML no expuso vendedor |
 
-Cuando D6.5 (futuro) capture más datos del vendedor, este módulo crece
-sin tocar el pipeline.
+Estas reglas son conservadoras: preferimos falsos negativos a falsos
+positivos en un dominio donde una alerta high indebida puede tirar
+una venta legítima.
 """
 
 from __future__ import annotations
 
 import re
-from typing import Literal
 
 from app.models.report import ListingData, SellerFinding
 
@@ -35,43 +42,78 @@ def analyze(listing: ListingData) -> list[SellerFinding]:
 
     seller = (listing.seller_name or "").strip()
     age = listing.seller_account_age_days
+    sales = listing.seller_sales_count
+    reputation = listing.seller_reputation
+    other_listings = listing.seller_other_listings_count
 
+    # Edad de la cuenta
     if age is not None:
         if age < 30:
-            findings.append(
-                SellerFinding(
-                    flag="new_account",
-                    severity="high",
-                    note=f"Cuenta del vendedor tiene {age} días — riesgo alto",
-                )
-            )
+            findings.append(SellerFinding(
+                flag="new_account",
+                severity="high",
+                note=f"Cuenta del vendedor tiene {age} días — riesgo alto",
+            ))
         elif age < 90:
-            findings.append(
-                SellerFinding(
-                    flag="new_account",
-                    severity="medium",
-                    note=f"Cuenta del vendedor tiene {age} días — relativamente nueva",
-                )
-            )
-
-    if not seller:
-        # Cuando ML no expone vendedor (común en concesionarios) lo
-        # registramos como informativo, no como red flag fuerte.
-        findings.append(
-            SellerFinding(
-                flag="other",
-                severity="low",
-                note="No se pudo extraer el nombre del vendedor del anuncio",
-            )
-        )
-    elif _looks_throwaway(seller):
-        findings.append(
-            SellerFinding(
+            findings.append(SellerFinding(
                 flag="new_account",
                 severity="medium",
-                note=f"Nombre de vendedor genérico/aleatorio: '{seller}'",
-            )
-        )
+                note=f"Cuenta del vendedor tiene {age} días — relativamente nueva",
+            ))
+
+    # Reputación ML (termómetro)
+    if reputation == "red":
+        findings.append(SellerFinding(
+            flag="other",
+            severity="high",
+            note=(
+                "Reputación ML del vendedor está en zona ROJA — historial "
+                "de quejas/reclamos. Verifica antes de pagar."
+            ),
+        ))
+    elif reputation == "yellow":
+        findings.append(SellerFinding(
+            flag="other",
+            severity="medium",
+            note="Reputación ML del vendedor irregular — algunas quejas reportadas.",
+        ))
+
+    # Ventas concretadas
+    if sales is not None and sales == 0 and age is not None and age >= 90:
+        findings.append(SellerFinding(
+            flag="no_other_listings",
+            severity="medium",
+            note=(
+                f"Cuenta de {age} días sin ninguna venta concretada — "
+                "atípico, podría ser cuenta dormida reactivada para esta venta."
+            ),
+        ))
+
+    # Otros listings (one-shot)
+    if other_listings is not None and other_listings <= 1:
+        findings.append(SellerFinding(
+            flag="no_other_listings",
+            severity="low",
+            note=(
+                "Vendedor solo tiene este anuncio activo — cuenta de uso "
+                "único común en autos particulares pero también en "
+                "estafadores."
+            ),
+        ))
+
+    # Nombre del vendedor
+    if not seller:
+        findings.append(SellerFinding(
+            flag="other",
+            severity="low",
+            note="No se pudo extraer el nombre del vendedor del anuncio",
+        ))
+    elif _looks_throwaway(seller):
+        findings.append(SellerFinding(
+            flag="new_account",
+            severity="medium",
+            note=f"Nombre de vendedor genérico/aleatorio: '{seller}'",
+        ))
 
     return findings
 
@@ -84,11 +126,6 @@ _THROWAWAY_PATTERNS = (
 
 
 def _looks_throwaway(name: str) -> bool:
-    """Heurística MUY conservadora: solo nombres claramente generados.
-
-    Falsos positivos de "Juan2024" no me preocupan tanto como cazar
-    "user12345" o "abc1234" que son patrones clásicos de cuenta de un
-    solo uso.
-    """
+    """Heurística MUY conservadora: solo nombres claramente generados."""
     n = name.strip().lower()
     return any(p.match(n) for p in _THROWAWAY_PATTERNS)

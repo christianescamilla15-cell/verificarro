@@ -102,6 +102,7 @@ def parse_listing(html: str, url: str) -> ListingData:
     photos = _extract_photos(soup, json_ld)
     location = _extract_location(soup)
     seller = _extract_seller(soup)
+    seller_signals = _extract_seller_signals(soup)
 
     year = _coerce_int(specs.get("año") or specs.get("ano"))
     kms = _coerce_int(specs.get("kilómetros") or specs.get("kilometros"))
@@ -129,6 +130,11 @@ def parse_listing(html: str, url: str) -> ListingData:
         location=location,
         description=description,
         seller_name=seller,
+        seller_account_age_days=seller_signals.get("account_age_days"),
+        seller_sales_count=seller_signals.get("sales_count"),
+        seller_reputation=seller_signals.get("reputation"),
+        seller_other_listings_count=seller_signals.get("other_listings_count"),
+        seller_profile_url=seller_signals.get("profile_url"),
         photo_urls=photos,
     )
 
@@ -370,6 +376,150 @@ def _extract_seller(soup: BeautifulSoup) -> str:
         if el:
             return el.get_text(strip=True)
     return ""
+
+
+# ---------------------------------------------------------------------------
+# Seller trust signals (2026-05-01 quick win 3)
+#
+# ML pinta al lado del nombre del vendedor:
+#   - "Lleva X años en Mercado Libre"  → account_age_days
+#   - "1.2k+ ventas concretadas"        → sales_count
+#   - Termómetro de reputación 1-5     → reputation color
+#   - Link al perfil + count de listings → other_listings_count
+#
+# Estos selectores son fragiles por naturaleza (ML cambia el DOM).
+# Por eso cada extractor falla limpio (devuelve None) en lugar de
+# romper el parser entero.
+
+
+_SELLER_INFO_SELECTOR = (
+    ".ui-pdp-seller, .ui-box-component-pdp__visible--desktop, "
+    ".ui-vip-seller-info, .ui-pdp-seller__header"
+)
+
+
+def _extract_seller_signals(soup: BeautifulSoup) -> dict:
+    """Extrae todos los trust signals del vendedor del HTML del listing.
+
+    Devuelve dict con keys opcionales — el llamante usa `.get(key)`.
+    """
+    info: dict = {}
+
+    text_blob = ""
+    for el in soup.select(_SELLER_INFO_SELECTOR):
+        text_blob += " " + el.get_text(" ", strip=True)
+    text_blob = text_blob.lower()
+
+    age = _parse_seller_account_age(text_blob)
+    if age is not None:
+        info["account_age_days"] = age
+
+    sales = _parse_seller_sales(text_blob)
+    if sales is not None:
+        info["sales_count"] = sales
+
+    reputation = _parse_seller_reputation(soup)
+    if reputation is not None:
+        info["reputation"] = reputation
+
+    other_listings = _parse_other_listings_count(text_blob)
+    if other_listings is not None:
+        info["other_listings_count"] = other_listings
+
+    profile_url = _parse_seller_profile_url(soup)
+    if profile_url:
+        info["profile_url"] = profile_url
+
+    return info
+
+
+# Texto: "Lleva 8 años en Mercado Libre" | "Lleva 6 meses en Mercado Libre"
+_AGE_YEARS_RE = re.compile(r"lleva\s+(\d+)\s+a[ñn]os?\s+en\s+mercado", re.IGNORECASE)
+_AGE_MONTHS_RE = re.compile(r"lleva\s+(\d+)\s+meses?\s+en\s+mercado", re.IGNORECASE)
+
+
+def _parse_seller_account_age(text: str) -> int | None:
+    """Convierte "Lleva X años/meses en Mercado Libre" → días."""
+    m = _AGE_YEARS_RE.search(text)
+    if m:
+        return int(m.group(1)) * 365
+    m = _AGE_MONTHS_RE.search(text)
+    if m:
+        return int(m.group(1)) * 30
+    return None
+
+
+# Texto: "1.2k+ ventas", "+5000 ventas", "1234 ventas concretadas"
+_SALES_K_RE = re.compile(r"(\d+(?:\.\d+)?)\s*k\+?\s*ventas?", re.IGNORECASE)
+_SALES_PLAIN_RE = re.compile(r"\+?\s*(\d{1,7})\s*ventas?", re.IGNORECASE)
+
+
+def _parse_seller_sales(text: str) -> int | None:
+    m = _SALES_K_RE.search(text)
+    if m:
+        return int(float(m.group(1)) * 1000)
+    m = _SALES_PLAIN_RE.search(text)
+    if m:
+        return int(m.group(1))
+    return None
+
+
+def _parse_seller_reputation(soup: BeautifulSoup) -> str | None:
+    """Termómetro ML: <... ui-thermometer__bar--N> donde N=1..5.
+
+    1-2 = rojo, 3 = amarillo, 4-5 = verde. ML también usa
+    `ui-pdp-seller__status-icon` con clases de color directo.
+    """
+    # Termómetro nivel
+    for n, color in ((5, "green"), (4, "green"), (3, "yellow"),
+                     (2, "red"), (1, "red")):
+        if soup.select_one(f".ui-thermometer__bar.ui-thermometer__bar--{n}"):
+            return color
+
+    # Texto explícito
+    text = soup.get_text(" ", strip=True).lower()
+    if "mercadolíder platinum" in text or "mercadolider platinum" in text:
+        return "green"
+    if "mercadolíder gold" in text or "mercadolider gold" in text:
+        return "green"
+    if "mercadolíder" in text or "mercadolider" in text:
+        return "green"
+    if "vendedor con buena reputación" in text or "buena reputacion" in text:
+        return "green"
+
+    return None
+
+
+# Texto: "543 publicaciones", "Ver más anuncios (47)"
+_OTHER_LISTINGS_RE = re.compile(
+    r"(\d+)\s+publicaciones|ver\s+m[áa]s\s+anuncios\s*\((\d+)\)",
+    re.IGNORECASE,
+)
+
+
+def _parse_other_listings_count(text: str) -> int | None:
+    m = _OTHER_LISTINGS_RE.search(text)
+    if m:
+        return int(m.group(1) or m.group(2))
+    return None
+
+
+def _parse_seller_profile_url(soup: BeautifulSoup) -> str | None:
+    """Link al perfil del vendedor — formato `perfil.mercadolibre.com.mx/USER`."""
+    for sel in (
+        "a[href*='perfil.mercadolibre.com.mx']",
+        ".ui-pdp-seller a[href*='perfil']",
+    ):
+        el = soup.select_one(sel)
+        if el:
+            href = el.get("href")
+            if href:
+                if href.startswith("//"):
+                    return "https:" + href
+                if href.startswith("/"):
+                    return "https://www.mercadolibre.com.mx" + href
+                return href
+    return None
 
 
 # ---------------------------------------------------------------------------
