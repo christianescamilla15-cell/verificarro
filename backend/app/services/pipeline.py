@@ -12,7 +12,12 @@ from app.models.report import (
     RiskLevel,
     Source,
 )
-from app.analyzers import photo_analyzer, price_estimator
+from app.analyzers import (
+    description_analyzer,
+    photo_analyzer,
+    price_estimator,
+    seller_analyzer,
+)
 from app.scrapers import mercadolibre, ml_search, repuve
 
 logger = logging.getLogger(__name__)
@@ -20,12 +25,16 @@ logger = logging.getLogger(__name__)
 
 async def run_pipeline(req: AnalyzeRequest) -> Report:
     listing = await _resolve_listing(req)
-    # REPUVE, precio y fotos son independientes — los corremos en paralelo.
+    # REPUVE, precio y fotos hacen I/O — paralelizamos.
+    # Description y seller son CPU-bound puras, las corremos sincrónicas
+    # después porque tardan microsegundos.
     repuve, price, photo_findings = await asyncio.gather(
         _resolve_repuve(req),
         _resolve_price(listing),
         _resolve_photos(listing),
     )
+    description_findings = description_analyzer.analyze(listing.description)
+    seller_findings = seller_analyzer.analyze(listing)
 
     return Report(
         score=50,
@@ -33,12 +42,14 @@ async def run_pipeline(req: AnalyzeRequest) -> Report:
         summary=(
             "Reporte placeholder — el scoring final llega en D7. Por ahora el "
             "endpoint regresa anuncio + REPUVE + precio justo + hallazgos de "
-            "fotos analizadas con IA."
+            "fotos + red flags de descripción y vendedor."
         ),
         listing=listing,
         repuve=repuve,
         price=price,
         photo_findings=photo_findings,
+        description_findings=description_findings,
+        seller_findings=seller_findings,
         questions_for_seller=[
             "¿Tienes la factura original y el endoso completo?",
             "¿Me dejas verificarlo en una agencia o con mi mecánico?",
