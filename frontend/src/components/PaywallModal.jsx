@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { X, Lock, AlertTriangle, ShieldCheck } from 'lucide-react'
 import { api } from '../lib/api.js'
+import WhatsAppButton from './WhatsAppButton.jsx'
 
 /**
  * Modal de desbloqueo. Recibe `report_id` y abre Mercado Pago.
@@ -136,6 +137,17 @@ export default function PaywallModal({ reportId, onClose }) {
             <ShieldCheck size={12} />
             Pago seguro vía Mercado Pago · Tarjeta, OXXO, SPEI
           </p>
+
+          {tier === 'premium' && (
+            <div className="paywall-wa-hint">
+              <p className="muted small" style={{ textAlign: 'center', marginBottom: 'var(--space-2)' }}>
+                Premium incluye soporte directo:
+              </p>
+              <div style={{ display: 'flex', justifyContent: 'center' }}>
+                <WhatsAppButton variant="inline" reportId={reportId} label="Vista previa del soporte WA" />
+              </div>
+            </div>
+          )}
         </form>
       </div>
     </div>

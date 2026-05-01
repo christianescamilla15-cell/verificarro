@@ -37,6 +37,8 @@ from app.db.models import Payment, PaymentStatus, ReportRecord, ReportStatus
 from app.db.session import get_session_factory
 from app.models.report import AnalyzeRequest, ManualListing, PhotoFinding, Source
 from app.services import photo_dedup
+from app.services.email import send_report_email
+from app.services.pdf_report import generate_pdf
 from app.services.photo_fetcher import fetch_photos
 from app.services.pipeline import run_pipeline
 
@@ -140,6 +142,15 @@ async def unlock_report_for_payment(payment_id: str) -> str | None:
                 preview.id,
                 payment_id,
             )
+
+            # Manda email con PDF adjunto si tenemos payer_email.
+            # Failure tolerant: si SMTP falla, NO bloqueamos el unlock —
+            # el reporte ya está disponible en la web.
+            if payment.payer_email:
+                await _send_report_email_safe(
+                    payment=payment, preview=preview, report=report,
+                )
+
             return preview.id
 
         except Exception:
@@ -251,6 +262,49 @@ async def generate_report_for_payment(payment_id: str) -> str | None:
             logger.exception("Generación de reporte falló para %s", payment_id)
             await session.rollback()
             return None
+
+
+async def _send_report_email_safe(
+    payment: Payment, preview: ReportRecord, report
+) -> None:
+    """Genera el PDF y manda el email al payer_email. Failure tolerant.
+
+    Si el PDF gen o el SMTP falla, loguea y sigue — el unlock ya quedó
+    persistido en DB y el usuario puede ver el reporte en la web.
+    El email es bonus, no requirement.
+    """
+    try:
+        pdf_bytes = generate_pdf(report)
+    except Exception:  # noqa: BLE001
+        logger.exception("Falló generar PDF para email post-unlock")
+        return
+
+    title_hint = (
+        report.listing.title or
+        f"{report.listing.make} {report.listing.model}".strip() or
+        "tu reporte"
+    )
+
+    # URL pública del reporte. En producción el frontend está en
+    # `verificarro.mx` o `verificarro.vercel.app`. Construimos best-effort
+    # con `MAGIC_LINK_BASE_URL` como pivot (apunta al frontend root).
+    from app.config import get_settings
+    settings = get_settings()
+    base = settings.magic_link_base_url.rsplit("/auth/", 1)[0]
+    report_url = f"{base}/checkout/success?external_reference={payment.mp_external_reference}"
+
+    try:
+        await send_report_email(
+            payment.payer_email or "",
+            pdf_bytes,
+            title_hint=title_hint,
+            score=report.score,
+            risk_level=report.risk_level.value,
+            report_id=preview.id,
+            report_url=report_url,
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("send_report_email falló (no-bloqueante)")
 
 
 async def _apply_photo_dedup(

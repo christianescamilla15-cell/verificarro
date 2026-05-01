@@ -133,6 +133,17 @@ class Settings(BaseSettings):
     price_search_mxn: float = Field(default=199.0, alias="PRICE_SEARCH_MXN")
     price_dealer_mxn: float = Field(default=1499.0, alias="PRICE_DEALER_MXN")
 
+    # --- WhatsApp tier Premium ---
+    # Número del soporte oficial Verificarro (incluye código de país,
+    # SIN +). El frontend genera links wa.me/{numero}?text=... para que
+    # el usuario tier Premium chatee directo con Christian sin pasar
+    # por formulario. Vacío en dev → botones se ocultan en frontend.
+    whatsapp_support_number: str = Field(
+        default="",
+        alias="WHATSAPP_SUPPORT_NUMBER",
+        description="Formato: 521XXXXXXXXXX (52 = MX, 1 = celular)",
+    )
+
     # --- Auth ---
     # Para JWT signing y HMAC del magic link. CAMBIAR en producción.
     jwt_secret: str = Field(

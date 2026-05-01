@@ -1460,6 +1460,63 @@ code.invoice-field-value {
   .compare-head { display: none; }
 }
 
+/* ===== WhatsApp button (tier Premium / soporte) ===== */
+.wa-button-float {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  width: 56px;
+  height: 56px;
+  border-radius: var(--radius-full);
+  background: #25d366; /* color oficial WhatsApp */
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 6px 20px rgba(37, 211, 102, 0.4);
+  z-index: 999;
+  transition: transform 200ms ease, box-shadow 200ms ease;
+  text-decoration: none;
+}
+.wa-button-float:hover {
+  transform: translateY(-3px) scale(1.05);
+  box-shadow: 0 12px 28px rgba(37, 211, 102, 0.5);
+  color: #ffffff;
+}
+.wa-button-float:active { transform: translateY(-1px) scale(1.02); }
+
+/* Inline version — dentro de secciones */
+.wa-button-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  background: #25d366;
+  color: #ffffff;
+  font-weight: var(--fw-semibold);
+  text-decoration: none;
+  font-size: var(--fs-sm);
+  transition: background 120ms ease, transform 80ms ease;
+}
+.wa-button-inline:hover {
+  background: #1ebe57;
+  color: #ffffff;
+  text-decoration: none;
+}
+.wa-button-inline:active { transform: translateY(1px); }
+
+/* En mobile el botón flotante baja un poco para no chocar con el
+   home indicator de iPhone / barras de Android */
+@media (max-width: 640px) {
+  .wa-button-float {
+    bottom: 16px;
+    right: 16px;
+    width: 52px;
+    height: 52px;
+  }
+}
+
 /* ===== Footer ===== */
 .footer {
   text-align: center;

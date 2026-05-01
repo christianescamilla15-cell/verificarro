@@ -67,6 +67,11 @@ class Payment(Base, TimestampMixin):
     invoice_number: Mapped[str | None] = mapped_column(
         String(64), nullable=True
     )
+    # Email del comprador (declarado al checkout). Cuando el unlock
+    # termina, le mandamos el reporte+PDF a este email vía send_report_email.
+    payer_email: Mapped[str | None] = mapped_column(
+        String(255), nullable=True
+    )
 
     paid_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True

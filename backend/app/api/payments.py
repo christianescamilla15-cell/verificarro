@@ -152,6 +152,7 @@ async def checkout(req: CheckoutRequest, session: SessionDep) -> CheckoutRespons
         plate=plate,
         vin=vin,
         invoice_number=req.invoice_number.strip() if req.invoice_number else None,
+        payer_email=req.payer_email.strip() if req.payer_email else None,
     )
     session.add(payment)
     await session.flush()  # asigna el id

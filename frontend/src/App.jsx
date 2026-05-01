@@ -1,5 +1,6 @@
 import { Route, Routes } from 'react-router-dom'
 import Header from './components/Header.jsx'
+import WhatsAppButton from './components/WhatsAppButton.jsx'
 import AuthVerify from './pages/AuthVerify.jsx'
 import CheckoutFailure from './pages/CheckoutFailure.jsx'
 import CheckoutPending from './pages/CheckoutPending.jsx'
@@ -25,6 +26,7 @@ export default function App() {
         <Route path="/checkout/failure" element={<CheckoutFailure />} />
         <Route path="/checkout/pending" element={<CheckoutPending />} />
       </Routes>
+      <WhatsAppButton variant="floating" />
     </div>
   )
 }
