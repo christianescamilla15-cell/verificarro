@@ -78,6 +78,7 @@ class PlateScanResponse(BaseModel):
     ocr_confidence: Literal["low", "medium", "high"] | None = None
     ocr_notes: str | None = None
     repuve: dict[str, Any]
+    consultation_links: list[dict[str, Any]] = []
 
 
 @router.post("/scan/plate", response_model=PlateScanResponse)
@@ -131,6 +132,10 @@ async def scan_plate(
         ocr_confidence=ocr_conf,
         ocr_notes=ocr_notes,
         repuve=report.repuve.model_dump(mode="json"),
+        consultation_links=[
+            link.model_dump(mode="json")
+            for link in report.consultation_links
+        ],
     )
 
 

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { ExternalLink, Factory } from 'lucide-react'
 import { downloadPdf } from '../lib/api.js'
 import FindingList from '../components/FindingList.jsx'
 import KVTable from '../components/KVTable.jsx'
@@ -58,9 +59,36 @@ export default function ReportView({ reportData }) {
           <KVTable rows={[
             ['Marca decoded', vinResult.decoded.manufacturer || '—'],
             ['Año decoded', vinResult.decoded.year || '—'],
-            ['País', vinResult.decoded.country || '—'],
+            ['País (WMI)', vinResult.decoded.country || '—'],
             ['¿Coincide con anuncio?', vinResult.matches_listing ? '✅ Sí' : '🚨 NO'],
           ]} />
+
+          {vinResult.decoded.nhtsa_found && (
+            <div className="nhtsa-block">
+              <h3>
+                <Factory size={18} style={{ verticalAlign: '-3px', marginRight: 6, color: 'var(--accent-text)' }} />
+                NHTSA vPIC (datos oficiales fabricante)
+              </h3>
+              <KVTable rows={[
+                ['Make oficial', vinResult.decoded.nhtsa_make || '—'],
+                ['Model oficial', vinResult.decoded.nhtsa_model || '—'],
+                ['Año modelo NHTSA', vinResult.decoded.nhtsa_model_year || '—'],
+                ['Carrocería', vinResult.decoded.nhtsa_body_class || '—'],
+                ['Trim', vinResult.decoded.nhtsa_trim || '—'],
+                ['Cilindros', vinResult.decoded.nhtsa_engine_cylinders || '—'],
+                ['Desplazamiento (L)', vinResult.decoded.nhtsa_engine_displacement_l || '—'],
+                ['Combustible', vinResult.decoded.nhtsa_fuel_type || '—'],
+                ['Transmisión', vinResult.decoded.nhtsa_transmission || '—'],
+                ['Tracción', vinResult.decoded.nhtsa_drive_type || '—'],
+                ['Puertas', vinResult.decoded.nhtsa_doors || '—'],
+                ['Planta de fabricación', [
+                  vinResult.decoded.nhtsa_plant_city,
+                  vinResult.decoded.nhtsa_plant_country,
+                ].filter(Boolean).join(', ') || '—'],
+              ]} />
+            </div>
+          )}
+
           {vinResult.alerts.length > 0 && (
             <FindingList
               title="Alertas del VIN"
@@ -136,12 +164,61 @@ export default function ReportView({ reportData }) {
         emptyText="Las fotos se ven normales."
       />
 
+      {r.exif_findings && r.exif_findings.length > 0 && (
+        <FindingList
+          title="Forensia EXIF (metadata de las fotos)"
+          findings={r.exif_findings}
+          getText={(f) => `Foto #${f.photo_index + 1}: ${f.note}`}
+          emptyText="Sin findings en metadata de fotos."
+        />
+      )}
+
       <FindingList
         title="Banderas del vendedor"
         findings={r.seller_findings}
         getText={(f) => f.note}
         emptyText="Sin banderas en el perfil del vendedor."
       />
+
+      {r.consultation_links && r.consultation_links.length > 0 && (
+        <section className="report-section gov-links">
+          <h2>
+            <ExternalLink size={20} strokeWidth={2.2} />
+            Verifica tú mismo en gob.mx
+          </h2>
+          <p className="muted">
+            Portales oficiales pre-llenados con la placa. Los marcados con
+            ✓ aplican a este auto según su ubicación.
+          </p>
+          <div className="gov-link-grid">
+            {r.consultation_links.map((link, i) => (
+              <a
+                key={i}
+                href={link.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={`gov-link gov-link-${link.category} ${link.applicable ? 'applicable' : 'not-applicable'}`}
+              >
+                <div className="gov-link-header">
+                  <span className="gov-link-name">{link.name}</span>
+                  <ExternalLink size={14} />
+                </div>
+                <p className="gov-link-desc">{link.description}</p>
+                <div className="gov-link-footer">
+                  <span className={`gov-link-badge gov-badge-${link.category}`}>
+                    {link.category}
+                  </span>
+                  {link.state_scope && (
+                    <span className="gov-link-scope">
+                      {link.applicable ? '✓ ' : ''}{link.state_scope}
+                    </span>
+                  )}
+                </div>
+              </a>
+            ))}
+          </div>
+        </section>
+      )}
 
       <section className="report-section">
         <h2>Preguntas para hacerle al vendedor</h2>

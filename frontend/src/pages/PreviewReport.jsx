@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import {
   Lock, ShieldCheck, TrendingUp, Image as ImageIcon, Search,
-  Fingerprint, FileText, MessageCircle, Unlock,
+  Fingerprint, FileText, MessageCircle, Unlock, ExternalLink,
+  AlertCircle,
 } from 'lucide-react'
 import PaywallModal from '../components/PaywallModal.jsx'
 import ScoreChip from '../components/ScoreChip.jsx'
@@ -52,6 +53,46 @@ export default function PreviewReport() {
     <main className="report-view preview-view">
       <ScoreChip score={data.score} risk={data.risk_level} />
       <p className="report-summary">{data.summary}</p>
+
+      {data.consultation_links && data.consultation_links.length > 0 && (
+        <section className="report-section gov-links">
+          <h2>
+            <ExternalLink size={20} strokeWidth={2.2} />
+            Verifica tú mismo en gob.mx (gratis)
+          </h2>
+          <p className="muted">
+            Portales oficiales pre-llenados con tu placa. Los marcados con
+            ✓ aplican a tu auto según la ubicación que detectamos.
+          </p>
+          <div className="gov-link-grid">
+            {data.consultation_links.map((link, i) => (
+              <a
+                key={i}
+                href={link.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={`gov-link gov-link-${link.category} ${link.applicable ? 'applicable' : 'not-applicable'}`}
+              >
+                <div className="gov-link-header">
+                  <span className="gov-link-name">{link.name}</span>
+                  <ExternalLink size={14} />
+                </div>
+                <p className="gov-link-desc">{link.description}</p>
+                <div className="gov-link-footer">
+                  <span className={`gov-link-badge gov-badge-${link.category}`}>
+                    {link.category}
+                  </span>
+                  {link.state_scope && (
+                    <span className="gov-link-scope">
+                      {link.applicable ? '✓ ' : ''}{link.state_scope}
+                    </span>
+                  )}
+                </div>
+              </a>
+            ))}
+          </div>
+        </section>
+      )}
 
       <section className="report-section">
         <h2>REPUVE (preview gratis)</h2>

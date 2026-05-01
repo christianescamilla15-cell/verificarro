@@ -937,6 +937,97 @@ button.icon-button:hover { color: var(--text-primary); background: var(--bg-card
   color: var(--text-muted);
 }
 
+/* ===== Gov.mx consultation links ===== */
+.gov-links { padding-top: var(--space-5); }
+.gov-link-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+.gov-link {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  text-decoration: none;
+  color: var(--text-primary);
+  transition: border-color 200ms ease, transform 200ms ease, background 200ms ease;
+  position: relative;
+}
+.gov-link.applicable {
+  border-color: var(--primary-border);
+}
+.gov-link.not-applicable {
+  opacity: 0.55;
+}
+.gov-link:hover {
+  border-color: var(--accent);
+  transform: translateY(-2px);
+  text-decoration: none;
+  color: var(--text-primary);
+}
+.gov-link-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.gov-link-name {
+  font-weight: var(--fw-semibold);
+  font-size: var(--fs-base);
+  color: var(--text-primary);
+}
+.gov-link-desc {
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  margin: 0;
+  line-height: var(--lh-snug);
+}
+.gov-link-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: auto;
+  padding-top: var(--space-2);
+}
+.gov-link-badge {
+  font-size: var(--fs-xs);
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-weight: var(--fw-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.gov-badge-robo { background: var(--danger-soft); color: var(--danger-text); }
+.gov-badge-fiscal { background: var(--primary-soft); color: var(--primary-text); }
+.gov-badge-ambiental { background: var(--success-soft); color: var(--success-text); }
+.gov-badge-infracciones { background: var(--warning-soft); color: var(--warning-text); }
+.gov-link-scope {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  font-weight: var(--fw-medium);
+}
+
+/* ===== NHTSA enrichment block in Report ===== */
+.nhtsa-block {
+  margin-top: var(--space-5);
+  padding: var(--space-4);
+  background: var(--primary-soft);
+  border: 1px solid var(--primary-border);
+  border-radius: var(--radius-md);
+}
+.nhtsa-block h3 {
+  margin-top: 0;
+  color: var(--primary-text);
+  display: inline-flex;
+  align-items: center;
+  font-size: var(--fs-base);
+}
+
 /* ===== Footer ===== */
 .footer {
   text-align: center;
