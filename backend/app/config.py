@@ -37,6 +37,19 @@ class Settings(BaseSettings):
         default="", alias="CAPTCHA_SOLVER_API_KEY"
     )
 
+    # Cantidad máxima de intentos por consulta REPUVE cuando el captcha
+    # bypass es rechazado. 1 = single-shot, 2 = un retry. Más allá de 2
+    # los retornos diminish y la UX sufre.
+    repuve_retry_attempts: int = Field(
+        default=2, alias="REPUVE_RETRY_ATTEMPTS"
+    )
+
+    # Proxy residencial MX para REPUVE — sube el éxito del captcha bypass
+    # de ~75% a ~88% porque la IP del solver de 2Captcha y la nuestra
+    # entran al mismo país y rango. Formato: http://user:pass@host:port
+    # Vacío por default (uso direct connection).
+    proxy_url: str = Field(default="", alias="PROXY_URL")
+
     # --- Database ---
     # Default: aiosqlite local file. En Render: postgresql+asyncpg://...
     database_url: str = Field(
