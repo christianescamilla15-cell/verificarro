@@ -3,18 +3,140 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#16120c" />
+    <meta name="theme-color" content="#06080d" />
+    <meta name="color-scheme" content="dark" />
+
+    <!-- ===== Primary SEO ===== -->
+    <title>Verificarro — Checa tu auto antes de soltar el cash</title>
     <meta
       name="description"
-      content="Verifica un auto de Marketplace antes de soltar el cash. Escanea la placa, recibe un preview gratis con REPUVE. Desbloquea precio justo, fotos con IA y detección de placa clonada por $49 MXN."
+      content="Escanea la placa de cualquier auto en Marketplace MX y recibe un preview gratis con REPUVE oficial, precio justo de mercado, análisis de fotos con IA y detección de placa clonada. Reporte completo desde $49 MXN."
     />
+    <meta
+      name="keywords"
+      content="verificar auto usado, REPUVE, placa robada, factura CFDI, mercado libre motors, autos usados México, anti estafa auto, comprar auto seguro"
+    />
+    <meta name="author" content="Verificarro" />
+    <link rel="canonical" href="https://verificarro.mx/" />
+
+    <!-- ===== Robots / indexación ===== -->
+    <meta
+      name="robots"
+      content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1"
+    />
+    <meta name="googlebot" content="index, follow" />
+
+    <!-- ===== Open Graph (Facebook, WhatsApp, LinkedIn, Discord) ===== -->
+    <meta property="og:type" content="website" />
+    <meta property="og:locale" content="es_MX" />
+    <meta property="og:site_name" content="Verificarro" />
+    <meta property="og:url" content="https://verificarro.mx/" />
+    <meta
+      property="og:title"
+      content="Verificarro — Checa tu auto antes de soltar el cash"
+    />
+    <meta
+      property="og:description"
+      content="Preview gratis con REPUVE. Reporte completo $49 MXN: precio justo, fotos con IA, factura SAT, escáner de placa clonada. Hecho en México."
+    />
+    <meta property="og:image" content="https://verificarro.mx/og-image.svg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="Verificarro — verificación de autos usados en México"
+    />
+
+    <!-- ===== Twitter / X ===== -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Verificarro — Checa tu auto antes de soltar el cash" />
+    <meta
+      name="twitter:description"
+      content="Preview gratis con REPUVE. Reporte completo $49 MXN. Detecta placa clonada, precio sobrepuesto y factura falsa."
+    />
+    <meta name="twitter:image" content="https://verificarro.mx/og-image.svg" />
+    <meta name="twitter:image:alt" content="Verificarro — verificación de autos usados México" />
+
+    <!-- ===== Apple ===== -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Verificarro" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+
+    <!-- ===== Favicon ===== -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+
+    <!-- ===== Fonts ===== -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       rel="stylesheet"
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
     />
-    <title>Verificarro — checa tu auto antes de comprarlo</title>
+
+    <!-- ===== Structured data (Schema.org JSON-LD) ===== -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "Service",
+        "name": "Verificarro",
+        "url": "https://verificarro.mx/",
+        "description": "Servicio de verificación de autos usados en México. REPUVE oficial, análisis de fotos con IA, precio justo del mercado, detección de placa clonada y factura SAT.",
+        "areaServed": {
+          "@type": "Country",
+          "name": "México"
+        },
+        "serviceType": "Vehicle verification",
+        "provider": {
+          "@type": "Organization",
+          "name": "Verificarro",
+          "url": "https://verificarro.mx/"
+        },
+        "offers": [
+          {
+            "@type": "Offer",
+            "name": "Reporte Básico",
+            "price": "49",
+            "priceCurrency": "MXN",
+            "description": "Reporte completo con análisis del anuncio, REPUVE, precio justo, fotos con IA y escaneo de VIN físico"
+          },
+          {
+            "@type": "Offer",
+            "name": "Premium",
+            "price": "99",
+            "priceCurrency": "MXN",
+            "description": "Reporte completo + soporte directo por WhatsApp"
+          },
+          {
+            "@type": "Offer",
+            "name": "Búsqueda activa",
+            "price": "199",
+            "priceCurrency": "MXN",
+            "description": "Plan mensual con hasta 50 reportes y soporte WhatsApp prioritario"
+          },
+          {
+            "@type": "Offer",
+            "name": "Dealer",
+            "price": "1499",
+            "priceCurrency": "MXN",
+            "description": "Plan mensual con 500 reportes, API directa y multi-usuario"
+          }
+        ]
+      }
+    </script>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebSite",
+        "name": "Verificarro",
+        "url": "https://verificarro.mx/",
+        "potentialAction": {
+          "@type": "SearchAction",
+          "target": "https://verificarro.mx/?placa={search_term_string}",
+          "query-input": "required name=search_term_string"
+        }
+      }
+    </script>
   </head>
   <body class="dark">
     <div id="root"></div>

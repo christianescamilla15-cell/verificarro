@@ -1,0 +1,10 @@
+# Verificarro — robots.txt
+User-agent: *
+Allow: /
+Disallow: /preview/
+Disallow: /checkout/
+Disallow: /auth/
+Disallow: /checkout-tier
+Disallow: /api/
+
+Sitemap: https://verificarro.mx/sitemap.xml
