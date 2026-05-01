@@ -12,7 +12,7 @@ databases:
   - name: verificarro-db
     databaseName: verificarro
     user: verificarro
-    plan: starter # $7/mo, 1GB storage, 256MB RAM, suficiente para MVP
+    plan: basic_256mb # $6/mo, reemplaza al legacy `starter` (deprecado 2026)
     region: oregon
 
 services:
