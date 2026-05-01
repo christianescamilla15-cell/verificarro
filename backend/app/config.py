@@ -29,6 +29,14 @@ class Settings(BaseSettings):
         default=1.0, alias="REPUVE_RATE_LIMIT_PER_SEC"
     )
 
+    # --- Captcha solver (2captcha.com) ---
+    # Si está vacío, REPUVE cae al flow legacy "captcha_required" cuando
+    # Google reCaptcha bloquea la consulta. Si está set, intentamos
+    # resolver vía 2Captcha (~$0.003 USD por solve).
+    captcha_solver_api_key: str = Field(
+        default="", alias="CAPTCHA_SOLVER_API_KEY"
+    )
+
     # --- Database ---
     # Default: aiosqlite local file. En Render: postgresql+asyncpg://...
     database_url: str = Field(

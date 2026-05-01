@@ -6,24 +6,24 @@ Es un SPA de Angular con cuatro campos de búsqueda (placa, NIV, folio,
 NCI). Esta implementación cubre los dos primeros — el resto sale del
 scope MVP.
 
-## Limitación conocida — reCaptcha de Google (2026-04-30)
+## reCaptcha bypass via 2Captcha (2026-05-01)
 
-REPUVE protege la consulta con **reCaptcha**, no con un captcha de
-imagen. Claude visión puede leer captchas de texto pero NO resuelve
-reCaptcha v2/v3 (es un widget de Google con análisis de comportamiento).
+REPUVE protege la consulta con **reCaptcha v2 de Google**, no con un
+captcha de imagen. Claude visión NO puede resolver reCaptcha (Google
+hace análisis de comportamiento del navegador, no es OCR).
 
-Por eso `query()` actualmente:
+El flow es:
 
-1. Carga el portal, llena placa/NIV y hace click en "Buscar".
-2. Si tras el submit aparece la alerta "El reCaptcha no fue superado
-   correctamente", devuelve `RepuveResult(queried=False, error=...)` con
-   un mensaje accionable y `raw_status="captcha_required"`.
-3. La UI debe ofrecer un fallback manual: link a REPUVE y campo para
-   pegar el resultado.
+1. Carga el portal, llena placa/NIV.
+2. Detecta el widget reCaptcha y extrae el `data-sitekey`.
+3. Si `CAPTCHA_SOLVER_API_KEY` está set → llamamos 2Captcha
+   (~$0.003 USD por solve, ~10-30s) y obtenemos un token.
+4. Inyectamos el token vía JS en el campo `g-recaptcha-response`.
+5. Submit del formulario → REPUVE devuelve datos reales.
 
-Migración futura a 2Captcha / Anti-Captcha (~$0.003 USD por reCaptcha)
-es directa cuando justifique el volumen — basta con plug-in en
-`_solve_recaptcha()`.
+Si 2Captcha no está configurado o falla, caemos al flow legacy:
+devolvemos `captcha_required` y la UI muestra link manual a
+repuve.gob.mx para que el usuario pegue el resultado.
 
 ## Throttle
 
@@ -40,6 +40,7 @@ from typing import TYPE_CHECKING
 
 from app.config import get_settings
 from app.models.report import RepuveResult
+from app.services.captcha_solver import solve_recaptcha_v2
 
 if TYPE_CHECKING:
     from playwright.async_api import Page
@@ -66,6 +67,8 @@ _SELECTORS = {
     "result_modal": ".modal.in .modal-body, .modal.show .modal-body",
     "captcha_img": "img[src*='captcha' i], img[id*='captcha' i]",
     "captcha_input": "input[name*='captcha' i], input[placeholder*='captcha' i]",
+    # reCaptcha v2: widget tiene atributo data-sitekey o iframe ?k=KEY.
+    "recaptcha_widget": "[data-sitekey], iframe[src*='recaptcha']",
 }
 
 # Token throttling — un solo lock global por proceso.
@@ -141,20 +144,29 @@ async def _run_query(plate: str | None, vin: str | None) -> RepuveResult:
                 input_selector = _SELECTORS["vin_input"]
                 await page.fill(input_selector, vin or "")
 
+            # Captchas de imagen tradicionales (raros): Claude visión.
             captcha_solved = await _maybe_solve_captcha(page)
+            # reCaptcha v2 de Google (común en REPUVE): 2Captcha API.
+            recaptcha_solved = await _maybe_solve_recaptcha(page)
             await _click_submit(page, input_selector)
             await page.wait_for_timeout(3_000)
 
             if await _has_recaptcha_error(page):
+                error_msg = (
+                    "REPUVE pidió reCaptcha. Consulta manualmente en "
+                    "repuve.gob.mx y pega el resultado en la app."
+                )
+                if recaptcha_solved:
+                    error_msg = (
+                        "REPUVE rechazó el token de reCaptcha. Reintenta "
+                        "o consulta manualmente en repuve.gob.mx."
+                    )
                 return RepuveResult(
                     queried=False,
                     plate=plate,
                     vin=vin,
                     raw_status="captcha_required",
-                    error=(
-                        "REPUVE pidió reCaptcha. Consulta manualmente en "
-                        "repuve.gob.mx y pega el resultado en la app."
-                    ),
+                    error=error_msg,
                 )
 
             modal_html = await _read_response_modal(page)
@@ -212,6 +224,94 @@ async def _click_submit(page: "Page", _input_selector: str) -> None:
                 return
         except Exception:
             continue
+
+
+async def _maybe_solve_recaptcha(page: "Page") -> bool:
+    """Si la página tiene un widget reCaptcha v2, intenta resolverlo via 2Captcha.
+
+    Devuelve True si se resolvió y el token quedó inyectado; False si
+    no había recaptcha, no había API key, o falló el solve.
+
+    Flow:
+      1. Busca elemento `[data-sitekey]` o iframe `?k=SITEKEY` para
+         extraer el sitekey de Google.
+      2. Llama a `solve_recaptcha_v2(sitekey, page_url)`.
+      3. Si devuelve token, lo inyecta en `g-recaptcha-response`
+         (el textarea hidden donde Google verifica la respuesta).
+    """
+    sitekey = await _extract_recaptcha_sitekey(page)
+    if not sitekey:
+        return False
+
+    page_url = page.url
+    try:
+        token = await solve_recaptcha_v2(sitekey, page_url)
+    except Exception as exc:  # noqa: BLE001
+        # captcha_solver.solve_recaptcha_v2 ya hace logging interno;
+        # cubrimos cualquier excepción inesperada.
+        import logging
+        logging.getLogger(__name__).warning(
+            "2Captcha excepción inesperada: %s", exc
+        )
+        return False
+
+    if not token:
+        return False
+
+    # Inyecta el token en el textarea hidden que Google usa.
+    try:
+        await page.evaluate(
+            """(token) => {
+                let el = document.getElementById('g-recaptcha-response');
+                if (!el) {
+                    // Algunos widgets renderizan el textarea con id distinto;
+                    // creamos uno si hace falta.
+                    el = document.createElement('textarea');
+                    el.id = 'g-recaptcha-response';
+                    el.name = 'g-recaptcha-response';
+                    el.style.display = 'none';
+                    document.body.appendChild(el);
+                }
+                el.value = token;
+                el.innerHTML = token;
+            }""",
+            token,
+        )
+    except Exception as exc:  # noqa: BLE001
+        import logging
+        logging.getLogger(__name__).warning(
+            "Failed injecting reCaptcha token: %s", exc
+        )
+        return False
+
+    return True
+
+
+async def _extract_recaptcha_sitekey(page: "Page") -> str | None:
+    """Busca el sitekey de Google en el DOM. Prioridad: data-sitekey > iframe?k=."""
+    # 1. Atributo data-sitekey (renderizado vía JS de Google)
+    try:
+        el = page.locator("[data-sitekey]").first
+        if await el.count() > 0:
+            value = await el.get_attribute("data-sitekey")
+            if value:
+                return value.strip()
+    except Exception:  # noqa: BLE001
+        pass
+
+    # 2. Iframe del widget: src tiene `?k=SITEKEY` o `&k=SITEKEY`
+    try:
+        iframe = page.locator("iframe[src*='recaptcha']").first
+        if await iframe.count() > 0:
+            src = await iframe.get_attribute("src")
+            if src:
+                m = re.search(r"[?&]k=([A-Za-z0-9_\-]+)", src)
+                if m:
+                    return m.group(1)
+    except Exception:  # noqa: BLE001
+        pass
+
+    return None
 
 
 async def _maybe_solve_captcha(page: "Page") -> bool:
