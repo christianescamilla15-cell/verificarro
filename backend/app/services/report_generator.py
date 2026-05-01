@@ -32,9 +32,12 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 
+from app.analyzers import scoring
 from app.db.models import Payment, PaymentStatus, ReportRecord, ReportStatus
 from app.db.session import get_session_factory
-from app.models.report import AnalyzeRequest, ManualListing, Source
+from app.models.report import AnalyzeRequest, ManualListing, PhotoFinding, Source
+from app.services import photo_dedup
+from app.services.photo_fetcher import fetch_photos
 from app.services.pipeline import run_pipeline
 
 logger = logging.getLogger(__name__)
@@ -112,6 +115,10 @@ async def unlock_report_for_payment(payment_id: str) -> str | None:
                 preview.status = ReportStatus.UNLOCKED
                 await session.commit()
                 return preview.id
+
+            # Photo dedup: post-procesa fotos con pHash para detectar
+            # fotos recicladas en otros listings de nuestra base histórica.
+            await _apply_photo_dedup(session, preview.listing_hash, report)
 
             preview.report_json = report.model_dump(mode="json")
             preview.score = report.score
@@ -244,6 +251,70 @@ async def generate_report_for_payment(payment_id: str) -> str | None:
             logger.exception("Generación de reporte falló para %s", payment_id)
             await session.rollback()
             return None
+
+
+async def _apply_photo_dedup(
+    session, listing_hash: str, report
+) -> None:
+    """Hashea las fotos del listing, busca matches en `photo_hashes` con
+    listing_hash distinto, agrega `PhotoFinding` por cada match
+    detectado (foto reciclada = high severity), almacena los hashes
+    nuevos y reescribe el scoring.
+
+    No-op si el listing no tiene fotos. Failure tolerant: si pHash o
+    DB falla, loguea y sigue sin tumbar el unlock.
+    """
+    photo_urls = report.listing.photo_urls if report.listing else []
+    if not photo_urls:
+        return
+
+    try:
+        bytes_list = await fetch_photos(photo_urls[:6])
+    except Exception:  # noqa: BLE001
+        logger.exception("Photo dedup: falló descarga de fotos")
+        return
+
+    hashes = [photo_dedup.compute_phash(b) for b in bytes_list]
+
+    # Buscar matches en histórico
+    try:
+        matches = await photo_dedup.find_recycled_photos(
+            session, hashes, listing_hash
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("Photo dedup: query DB falló")
+        matches = []
+
+    # Convertir matches en PhotoFinding HIGH
+    for idx, info in matches:
+        report.photo_findings.append(PhotoFinding(
+            photo_index=idx,
+            issue="watermark_or_stock",
+            severity="high",
+            note=(
+                f"Foto reciclada: misma imagen apareció en otro listing "
+                f"(hash dist {info['hamming']}/64). Posible foto stock "
+                "o anuncio fraudulento reusando fotos."
+            ),
+        ))
+    if matches:
+        # Re-correr scoring para integrar los nuevos findings
+        scoring.populate(report)
+        logger.warning(
+            "Photo dedup: %d fotos recicladas detectadas", len(matches)
+        )
+
+    # Almacenar nuevos hashes para próximos reports
+    try:
+        hash_pairs = list(zip(
+            hashes,
+            photo_urls[:6] + [None] * max(0, 6 - len(photo_urls)),
+        ))
+        await photo_dedup.store_photo_hashes(
+            session, listing_hash, hash_pairs
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("Photo dedup: store hashes falló")
 
 
 def _build_analyze_request(
