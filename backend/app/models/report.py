@@ -142,6 +142,26 @@ class DescriptionFinding(BaseModel):
     excerpt: str
 
 
+class CrossListingModel(BaseModel):
+    """Listing del mismo auto encontrado en otro marketplace MX.
+
+    Útil para detectar cross-postings (mismo vendedor anunciando en
+    múltiples sitios — bandera media) o foto-stock revendida (mismo
+    auto a precios MUY distintos = sospechoso).
+    """
+
+    marketplace: Literal[
+        "vivanuncios", "seminuevos", "olx_mx", "fb_marketplace", "kavak",
+    ]
+    title: str
+    price_mxn: float | None = None
+    url: str
+    location: str = ""
+    photos: list[str] = Field(default_factory=list)
+    seller_name: str = ""
+    notes: str = ""
+
+
 class ConsultationLinkModel(BaseModel):
     """Link a portal oficial gob.mx pre-llenado para que el usuario
     consulte él mismo. Espejo Pydantic del dataclass `ConsultationLink`
@@ -253,6 +273,7 @@ class Report(BaseModel):
     seller_findings: list[SellerFinding] = Field(default_factory=list)
     vin_check: VinCheck | None = None
     consultation_links: list[ConsultationLinkModel] = Field(default_factory=list)
+    cross_listings: list[CrossListingModel] = Field(default_factory=list)
     questions_for_seller: list[str] = Field(default_factory=list)
     generated_at: datetime = Field(default_factory=_utc_now)
 

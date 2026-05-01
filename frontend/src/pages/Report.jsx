@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ExternalLink, Factory } from 'lucide-react'
+import { ExternalLink, Factory, Globe } from 'lucide-react'
 import { downloadPdf } from '../lib/api.js'
 import FindingList from '../components/FindingList.jsx'
 import KVTable from '../components/KVTable.jsx'
@@ -179,6 +179,45 @@ export default function ReportView({ reportData }) {
         getText={(f) => f.note}
         emptyText="Sin banderas en el perfil del vendedor."
       />
+
+      {r.cross_listings && r.cross_listings.length > 0 && (
+        <section className="report-section cross-listings">
+          <h2>
+            <Globe size={20} strokeWidth={2.2} />
+            Otros marketplaces — el mismo modelo
+          </h2>
+          <p className="muted">
+            Encontramos {r.cross_listings.length} listing(s) similares en otros
+            sitios MX. Compara precios y verifica si el vendedor está
+            cross-posteando (puede ser bandera).
+          </p>
+          <div className="cross-listing-grid">
+            {r.cross_listings.map((cl, i) => (
+              <a
+                key={i}
+                href={cl.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="cross-listing-card"
+              >
+                <div className="cross-listing-marketplace">
+                  {cl.marketplace.replace('_', ' ')}
+                </div>
+                <div className="cross-listing-title">{cl.title}</div>
+                {cl.price_mxn && (
+                  <div className="cross-listing-price">
+                    ${cl.price_mxn.toLocaleString('es-MX')} MXN
+                  </div>
+                )}
+                {cl.location && (
+                  <div className="cross-listing-location">{cl.location}</div>
+                )}
+                <ExternalLink size={14} className="cross-listing-icon" />
+              </a>
+            ))}
+          </div>
+        </section>
+      )}
 
       {r.consultation_links && r.consultation_links.length > 0 && (
         <section className="report-section gov-links">

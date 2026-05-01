@@ -1151,6 +1151,62 @@ button.icon-button:hover { color: var(--text-primary); background: var(--bg-card
   font-size: var(--fs-base);
 }
 
+/* ===== Cross-listings (multi-marketplace) ===== */
+.cross-listings { padding-top: var(--space-5); }
+.cross-listing-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+.cross-listing-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  text-decoration: none;
+  color: var(--text-primary);
+  transition: border-color 200ms ease, transform 200ms ease;
+}
+.cross-listing-card:hover {
+  border-color: var(--accent);
+  transform: translateY(-2px);
+  text-decoration: none;
+  color: var(--text-primary);
+}
+.cross-listing-marketplace {
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-weight: var(--fw-bold);
+  color: var(--accent-text);
+}
+.cross-listing-title {
+  font-weight: var(--fw-semibold);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-snug);
+  color: var(--text-primary);
+}
+.cross-listing-price {
+  font-size: var(--fs-md);
+  font-weight: var(--fw-bold);
+  color: var(--success-text);
+}
+.cross-listing-location {
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+}
+.cross-listing-icon {
+  position: absolute;
+  top: var(--space-3);
+  right: var(--space-3);
+  color: var(--text-muted);
+}
+
 /* ===== Pricing page ===== */
 .pricing-grid {
   display: grid;

@@ -31,6 +31,7 @@ from app.analyzers import (
     vin_check as vin_check_module,
 )
 from app.scrapers import mercadolibre, ml_search, repuve
+from app.scrapers.multi_marketplace import find_cross_listings
 from app.services.gob_mx_links import build_consultation_links
 from app.services.photo_fetcher import fetch_photos
 
@@ -179,12 +180,16 @@ async def _run_repuve(
 
 async def run_pipeline(req: AnalyzeRequest) -> Report:
     listing = await _resolve_listing(req)
-    # REPUVE, precio, fotos (Claude vision) y EXIF hacen I/O — paralelizamos.
-    repuve, price, photo_findings, exif_findings = await asyncio.gather(
-        _resolve_repuve(req),
-        _resolve_price(listing),
-        _resolve_photos(listing),
-        _resolve_exif(listing),
+    # REPUVE, precio, fotos (Claude vision), EXIF y cross-listings hacen I/O
+    # — paralelizamos.
+    repuve, price, photo_findings, exif_findings, cross_listings = (
+        await asyncio.gather(
+            _resolve_repuve(req),
+            _resolve_price(listing),
+            _resolve_photos(listing),
+            _resolve_exif(listing),
+            _resolve_cross_listings(listing),
+        )
     )
     description_findings = description_analyzer.analyze(listing.description)
     seller_findings = seller_analyzer.analyze(listing)
@@ -205,6 +210,7 @@ async def run_pipeline(req: AnalyzeRequest) -> Report:
         seller_findings=seller_findings,
         vin_check=vin_check,
         consultation_links=consultation_links,
+        cross_listings=cross_listings,
         questions_for_seller=[
             "¿Tienes la factura original y el endoso completo?",
             "¿Me dejas verificarlo en una agencia o con mi mecánico?",
@@ -392,6 +398,43 @@ async def _resolve_photos(listing: ListingData):
     except Exception:  # noqa: BLE001
         logger.exception("Photo analyzer falló")
         return []
+
+
+async def _resolve_cross_listings(listing: ListingData):
+    """Busca el mismo make+model+year en otros marketplaces MX.
+
+    Solo corre si tenemos make/model — sin eso no podemos buscar.
+    Si todos los providers fallan, devuelve lista vacía sin tumbar
+    el pipeline.
+    """
+    from app.models.report import CrossListingModel
+
+    if not listing.make or not listing.model:
+        return []
+
+    try:
+        result = await find_cross_listings(
+            make=listing.make,
+            model=listing.model,
+            year=listing.year if listing.year > 0 else None,
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("Multi-marketplace search falló")
+        return []
+
+    return [
+        CrossListingModel(
+            marketplace=cl.marketplace,
+            title=cl.title,
+            price_mxn=cl.price_mxn,
+            url=cl.url,
+            location=cl.location,
+            photos=cl.photos,
+            seller_name=cl.seller_name,
+            notes=cl.notes,
+        )
+        for cl in result.listings
+    ]
 
 
 async def _resolve_exif(listing: ListingData):
