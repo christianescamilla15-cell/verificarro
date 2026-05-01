@@ -16,6 +16,7 @@ from app.analyzers import (
     description_analyzer,
     photo_analyzer,
     price_estimator,
+    scoring,
     seller_analyzer,
 )
 from app.scrapers import mercadolibre, ml_search, repuve
@@ -36,14 +37,11 @@ async def run_pipeline(req: AnalyzeRequest) -> Report:
     description_findings = description_analyzer.analyze(listing.description)
     seller_findings = seller_analyzer.analyze(listing)
 
-    return Report(
-        score=50,
-        risk_level=RiskLevel.YELLOW,
-        summary=(
-            "Reporte placeholder — el scoring final llega en D7. Por ahora el "
-            "endpoint regresa anuncio + REPUVE + precio justo + hallazgos de "
-            "fotos + red flags de descripción y vendedor."
-        ),
+    report = Report(
+        # Placeholder; `scoring.populate` lo sobreescribe a continuación.
+        score=0,
+        risk_level=RiskLevel.RED,
+        summary="",
         listing=listing,
         repuve=repuve,
         price=price,
@@ -56,6 +54,7 @@ async def run_pipeline(req: AnalyzeRequest) -> Report:
             "¿Por qué lo vendes y desde cuándo lo tienes?",
         ],
     )
+    return scoring.populate(report)
 
 
 async def _resolve_listing(req: AnalyzeRequest) -> ListingData:
