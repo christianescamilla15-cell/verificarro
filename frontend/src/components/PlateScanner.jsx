@@ -1,4 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
+import {
+  X, Camera, Image as ImageIcon, Keyboard, ArrowLeft, ScanLine,
+  RefreshCcw, Send, AlertTriangle,
+} from 'lucide-react'
 import { api } from '../lib/api.js'
 import Spinner from './Spinner.jsx'
 
@@ -151,26 +155,31 @@ export default function PlateScanner({ onResult, onClose }) {
     <div className="vin-scanner-overlay" role="dialog" aria-modal="true">
       <div className="vin-scanner">
         <div className="vin-scanner-header">
-          <h2>Escanear placa</h2>
-          <button onClick={onClose} className="close-btn" aria-label="Cerrar">×</button>
+          <h2><ScanLine size={20} style={{ verticalAlign: '-3px', marginRight: 6, color: 'var(--accent-text)' }} />Escanear placa</h2>
+          <button onClick={onClose} className="close-btn" aria-label="Cerrar">
+            <X size={22} />
+          </button>
         </div>
 
         {stage === 'mode' && (
           <div className="scan-modes">
             <p className="muted">
-              Tres formas de capturar — elige la que te quede más cómoda.
+              Tres formas de capturar — elige la más cómoda.
             </p>
             <button onClick={openCamera} className="primary big">
-              📷 Abrir cámara
+              <Camera size={20} strokeWidth={2.2} />
+              Abrir cámara
             </button>
             <button
               onClick={() => fileInputRef.current?.click()}
               className="secondary big"
             >
-              🖼️ Subir foto desde galería
+              <ImageIcon size={20} strokeWidth={2.2} />
+              Subir foto desde galería
             </button>
             <button onClick={() => setStage('manual')} className="secondary big">
-              ⌨️ Ingresar placa manualmente
+              <Keyboard size={20} strokeWidth={2.2} />
+              Ingresar placa manualmente
             </button>
             <input
               ref={fileInputRef}
@@ -191,8 +200,8 @@ export default function PlateScanner({ onResult, onClose }) {
         {stage === 'camera' && (
           <>
             <p className="muted">
-              Encuadra los caracteres de la placa. Acerca el teléfono para que
-              ocupe la mayor parte del cuadro.
+              Encuadra los caracteres de la placa dentro del marco. Acerca
+              el teléfono para que ocupe la mayor parte del cuadro.
             </p>
             <div className="camera-preview">
               <video ref={videoRef} autoPlay playsInline muted className="camera-video" />
@@ -200,9 +209,11 @@ export default function PlateScanner({ onResult, onClose }) {
             </div>
             <div className="actions">
               <button onClick={() => { stopStream(); setStage('mode') }} className="secondary">
-                Volver
+                <ArrowLeft size={18} /> Volver
               </button>
-              <button onClick={capture} className="primary">📸 Capturar</button>
+              <button onClick={capture} className="primary">
+                <Camera size={18} /> Capturar
+              </button>
             </div>
           </>
         )}
@@ -212,8 +223,12 @@ export default function PlateScanner({ onResult, onClose }) {
             <p>Revisa que la placa se vea clara y completa.</p>
             <canvas ref={canvasRef} className="capture-canvas" />
             <div className="actions">
-              <button onClick={retake} className="secondary">Re-tomar</button>
-              <button onClick={submitImage} className="primary">Enviar</button>
+              <button onClick={retake} className="secondary">
+                <RefreshCcw size={18} /> Re-tomar
+              </button>
+              <button onClick={submitImage} className="primary">
+                <Send size={18} /> Enviar
+              </button>
             </div>
           </>
         )}
@@ -267,23 +282,31 @@ export default function PlateScanner({ onResult, onClose }) {
             )}
             <div className="actions">
               <button type="button" onClick={() => setStage('mode')} className="secondary">
-                Volver
+                <ArrowLeft size={18} /> Volver
               </button>
-              <button type="submit" className="primary">Verificar</button>
+              <button type="submit" className="primary">
+                <Send size={18} /> Verificar
+              </button>
             </div>
-            {error && <p className="error">{error}</p>}
+            {error && (
+              <p className="error">
+                <AlertTriangle size={16} /> {error}
+              </p>
+            )}
           </form>
         )}
 
         {stage === 'error' && (
           <div className="error-box">
-            <p>⚠️ {error}</p>
+            <p className="error">
+              <AlertTriangle size={18} /> {error}
+            </p>
             <div className="actions">
               <button onClick={() => setStage('mode')} className="secondary">
-                Re-intentar
+                <RefreshCcw size={18} /> Re-intentar
               </button>
               <button onClick={() => setStage('manual')} className="primary">
-                Ingresar manualmente
+                <Keyboard size={18} /> Ingresar manualmente
               </button>
             </div>
           </div>

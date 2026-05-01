@@ -1,10 +1,21 @@
 /* ============================================================
-   Verificarro design tokens (2026-05-01 visual polish)
+   Verificarro design tokens v2 — paleta de confianza (2026-05-01)
 
-   Built sobre @radix-ui/colors. Cada escala importada trae 12
-   pasos en CSS variables nombradas (--amber-1 ... --amber-12)
-   con la siguiente semántica:
+   Cambio vs v1: pasamos de amber+mauve (cálido, genérico) a
+   **azul profundo + cyan + slate frío**. Razonamiento:
 
+   - **Azul profundo** = color de confianza por excelencia en
+     fintech/verificación/autos usados (BBVA, PayPal, Stripe, Visa,
+     Chase, Plaid, Mercado Pago, **Kavak** — competidor directo MX).
+   - **Cyan** como accent secundario evoca "scanning, tech, acción".
+     Combinación blue+cyan es el lenguaje visual de Stripe/Plaid.
+   - **Slate** (azul-gris frío) en lugar de mauve para conveyar
+     "ingeniería seria" en vez de "boutique cálido".
+   - **Verde grass** se queda para success/REPUVE limpio.
+   - **Rojo crimson** para danger (más serio que red estándar).
+   - **Amber** se demota a uso esporádico (warning only, no brand).
+
+   Built on @radix-ui/colors. Cada escala trae 12 pasos:
       1   App background
       2   Subtle background
       3   UI element background
@@ -17,51 +28,53 @@
      10   Hovered solid
      11   Low-contrast text
      12   High-contrast text
-
-   El selector que pinta los valores es `.dark, .dark-theme`. El
-   `<body>` debe tener clase `dark` (lo hace `index.html`).
-
-   Sobre estos rieles definimos tokens semánticos: --bg-app, --bg-card,
-   --border-subtle, --text-primary, --text-muted, --accent, --danger, etc.
-   Componentes consumen los semánticos, NO los hex de Radix directamente.
    ============================================================ */
 
-@import "@radix-ui/colors/mauve-dark.css";
-@import "@radix-ui/colors/mauve-dark-alpha.css";
-@import "@radix-ui/colors/amber-dark.css";
-@import "@radix-ui/colors/amber-dark-alpha.css";
+@import "@radix-ui/colors/slate-dark.css";
+@import "@radix-ui/colors/slate-dark-alpha.css";
+@import "@radix-ui/colors/blue-dark.css";
+@import "@radix-ui/colors/blue-dark-alpha.css";
+@import "@radix-ui/colors/cyan-dark.css";
 @import "@radix-ui/colors/grass-dark.css";
-@import "@radix-ui/colors/red-dark.css";
-@import "@radix-ui/colors/yellow-dark.css";
-@import "@radix-ui/colors/sky-dark.css";
+@import "@radix-ui/colors/crimson-dark.css";
+@import "@radix-ui/colors/amber-dark.css";
 
 .dark, .dark-theme {
-  /* ===== Surfaces ===== */
-  --bg-app: var(--mauve-1);            /* page bg */
-  --bg-elevated: var(--mauve-2);       /* navbar, footer */
-  --bg-card: var(--mauve-3);           /* form fields, cards */
-  --bg-card-hover: var(--mauve-4);
-  --bg-overlay: rgba(0, 0, 0, 0.65);   /* modal scrim */
+  /* ===== Surfaces (slate cool, lean azul oscuro) ===== */
+  --bg-app: #06080d;                   /* extra deep, casi negro azul */
+  --bg-elevated: var(--slate-2);
+  --bg-card: var(--slate-3);
+  --bg-card-hover: var(--slate-4);
+  --bg-muted: var(--slate-5);
+  --bg-overlay: rgba(2, 4, 9, 0.78);
 
   /* ===== Borders ===== */
-  --border-subtle: var(--mauve-6);
-  --border-default: var(--mauve-7);
-  --border-hover: var(--mauve-8);
-  --border-focus: var(--amber-9);
+  --border-subtle: var(--slate-6);
+  --border-default: var(--slate-7);
+  --border-hover: var(--slate-8);
+  --border-focus: var(--cyan-9);
 
   /* ===== Text ===== */
-  --text-primary: var(--mauve-12);     /* headings, body */
-  --text-secondary: var(--mauve-11);   /* labels, taglines */
-  --text-muted: var(--mauve-10);       /* small print */
-  --text-disabled: var(--mauve-8);
+  --text-primary: var(--slate-12);
+  --text-secondary: var(--slate-11);
+  --text-muted: var(--slate-10);
+  --text-disabled: var(--slate-8);
 
-  /* ===== Brand / accent (amber) ===== */
-  --accent: var(--amber-9);
-  --accent-hover: var(--amber-10);
-  --accent-text: var(--amber-12);      /* texto sobre superficie tenue */
-  --accent-on-solid: #1a1300;          /* texto sobre fondo amber-9 (alta legibilidad) */
-  --accent-bg-soft: var(--amber-3);
-  --accent-border: var(--amber-7);
+  /* ===== Brand: deep trust blue ===== */
+  --primary: var(--blue-9);
+  --primary-hover: var(--blue-10);
+  --primary-text: var(--blue-12);
+  --primary-soft: var(--blue-3);
+  --primary-soft-hover: var(--blue-4);
+  --primary-border: var(--blue-7);
+  --primary-on-solid: #ffffff;
+
+  /* ===== Accent: cyan for action/scanning ===== */
+  --accent: var(--cyan-9);
+  --accent-hover: var(--cyan-10);
+  --accent-text: var(--cyan-11);
+  --accent-soft: var(--cyan-3);
+  --accent-border: var(--cyan-7);
 
   /* ===== Risk colors ===== */
   --success: var(--grass-9);
@@ -69,21 +82,17 @@
   --success-text: var(--grass-11);
   --success-border: var(--grass-7);
 
-  --warning: var(--yellow-9);
-  --warning-soft: var(--yellow-3);
-  --warning-text: var(--yellow-11);
-  --warning-border: var(--yellow-7);
+  --warning: var(--amber-9);
+  --warning-soft: var(--amber-3);
+  --warning-text: var(--amber-11);
+  --warning-border: var(--amber-7);
 
-  --danger: var(--red-9);
-  --danger-soft: var(--red-3);
-  --danger-text: var(--red-11);
-  --danger-border: var(--red-7);
+  --danger: var(--crimson-9);
+  --danger-soft: var(--crimson-3);
+  --danger-text: var(--crimson-11);
+  --danger-border: var(--crimson-7);
 
-  --info: var(--sky-9);
-  --info-soft: var(--sky-3);
-  --info-text: var(--sky-11);
-
-  /* ===== Spacing scale (rem) ===== */
+  /* ===== Spacing scale ===== */
   --space-1: 0.25rem;
   --space-2: 0.5rem;
   --space-3: 0.75rem;
@@ -95,23 +104,32 @@
   --space-12: 3rem;
   --space-16: 4rem;
   --space-20: 5rem;
+  --space-24: 6rem;
 
   /* ===== Radii ===== */
   --radius-sm: 4px;
   --radius-md: 8px;
   --radius-lg: 12px;
   --radius-xl: 16px;
+  --radius-2xl: 24px;
   --radius-full: 9999px;
 
   /* ===== Shadows ===== */
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 10px 30px rgba(0, 0, 0, 0.55);
-  --shadow-glow-accent: 0 0 0 1px var(--amber-7), 0 6px 20px rgba(255, 197, 61, 0.18);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 4px 14px rgba(0, 0, 0, 0.55);
+  --shadow-lg: 0 14px 40px rgba(0, 0, 0, 0.65);
+  --shadow-glow-primary:
+    0 0 0 1px var(--blue-7),
+    0 8px 24px rgba(30, 100, 220, 0.3),
+    0 0 60px rgba(30, 144, 255, 0.18);
+  --shadow-glow-accent:
+    0 0 0 1px var(--cyan-7),
+    0 8px 24px rgba(6, 182, 212, 0.25);
 
   /* ===== Typography ===== */
-  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-    "Helvetica Neue", Arial, sans-serif;
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-display: "Inter", "Inter Display", sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 
   --fs-xs: 0.75rem;
@@ -123,13 +141,25 @@
   --fs-2xl: 2rem;
   --fs-3xl: 2.5rem;
   --fs-4xl: 3.25rem;
+  --fs-5xl: 4rem;
 
-  --lh-tight: 1.2;
-  --lh-snug: 1.35;
+  --lh-tight: 1.1;
+  --lh-snug: 1.3;
   --lh-normal: 1.55;
 
   --fw-regular: 400;
   --fw-medium: 500;
   --fw-semibold: 600;
   --fw-bold: 700;
+  --fw-extrabold: 800;
+
+  /* ===== Gradients (reusable) ===== */
+  --gradient-brand: linear-gradient(135deg, var(--blue-9), var(--cyan-9));
+  --gradient-hero: linear-gradient(180deg,
+    rgba(30, 100, 220, 0.08) 0%,
+    rgba(6, 182, 212, 0.04) 35%,
+    transparent 70%);
+  --gradient-card-hover: linear-gradient(180deg,
+    var(--blue-3) 0%,
+    transparent 100%);
 }

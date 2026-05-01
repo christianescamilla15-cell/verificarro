@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { X, Lock, AlertTriangle, ShieldCheck } from 'lucide-react'
 import { api } from '../lib/api.js'
 
 /**
@@ -43,8 +44,13 @@ export default function PaywallModal({ reportId, onClose }) {
     <div className="vin-scanner-overlay" role="dialog" aria-modal="true">
       <div className="vin-scanner paywall-modal">
         <div className="vin-scanner-header">
-          <h2>Desbloquear reporte completo</h2>
-          <button onClick={onClose} className="close-btn" aria-label="Cerrar">×</button>
+          <h2>
+            <Lock size={20} style={{ verticalAlign: '-3px', marginRight: 6, color: 'var(--accent-text)' }} />
+            Desbloquear reporte completo
+          </h2>
+          <button onClick={onClose} className="close-btn" aria-label="Cerrar">
+            <X size={22} />
+          </button>
         </div>
 
         <form onSubmit={handleUnlock} className="paywall-form">
@@ -99,12 +105,18 @@ export default function PaywallModal({ reportId, onClose }) {
           </div>
 
           <button type="submit" className="primary big" disabled={loading}>
+            <Lock size={18} />
             {loading ? 'Iniciando pago…' : 'Pagar y desbloquear'}
           </button>
 
-          {error && <div className="error">⚠️ {error}</div>}
+          {error && (
+            <div className="error">
+              <AlertTriangle size={16} /> {error}
+            </div>
+          )}
           <p className="micro-trust">
-            Pago seguro vía Mercado Pago. Acepta tarjeta, OXXO, SPEI.
+            <ShieldCheck size={12} />
+            Pago seguro vía Mercado Pago · Tarjeta, OXXO, SPEI
           </p>
         </form>
       </div>

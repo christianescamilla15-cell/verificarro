@@ -1,5 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
+import {
+  Lock, ShieldCheck, TrendingUp, Image as ImageIcon, Search,
+  Fingerprint, FileText, MessageCircle, Unlock,
+} from 'lucide-react'
 import PaywallModal from '../components/PaywallModal.jsx'
 import ScoreChip from '../components/ScoreChip.jsx'
 import KVTable from '../components/KVTable.jsx'
@@ -69,7 +73,10 @@ export default function PreviewReport() {
       </section>
 
       <section className="report-section paywall-cta">
-        <h2>Desbloquea el reporte completo</h2>
+        <h2>
+          <Unlock size={22} strokeWidth={2.2} />
+          Desbloquea el reporte completo
+        </h2>
         <p>
           Por <strong>$49 MXN</strong> incluimos análisis del anuncio (precio
           justo, fotos con IA, banderas en la descripción) y la herramienta
@@ -79,43 +86,71 @@ export default function PreviewReport() {
           onClick={() => setPaywallOpen(true)}
           className="primary big"
         >
-          🔓 Desbloquear por $49 MXN
+          <Unlock size={18} />
+          Desbloquear por $49 MXN
         </button>
       </section>
 
       <section className="report-section locked-preview">
-        <h2 className="locked-heading">🔒 Lo que se desbloquea con el pago</h2>
+        <h2 className="locked-heading">
+          <Lock size={18} /> Lo que se desbloquea con el pago
+        </h2>
         <ul className="locked-list">
           <li>
-            <strong>Precio justo</strong> — comparamos contra ~50 anuncios
-            similares en ML Motors y te decimos si está sobrepuesto o
-            sospechosamente barato.
+            <TrendingUp size={20} strokeWidth={2} />
+            <span>
+              <strong>Precio justo</strong>
+              Comparamos contra ~50 anuncios similares en ML Motors y te
+              decimos si está sobrepuesto o sospechosamente barato.
+            </span>
           </li>
           <li>
-            <strong>Análisis de fotos con IA</strong> — Claude visión revisa
-            cada foto del anuncio buscando paneles desalineados, óxido,
-            repintado, watermarks y otros indicios.
+            <ImageIcon size={20} strokeWidth={2} />
+            <span>
+              <strong>Análisis de fotos con IA</strong>
+              Claude visión revisa cada foto del anuncio buscando paneles
+              desalineados, óxido, repintado, watermarks y otros indicios.
+            </span>
           </li>
           <li>
-            <strong>Banderas en la descripción</strong> — 21 patrones
-            lingüísticos de estafa-clásica.
+            <Search size={20} strokeWidth={2} />
+            <span>
+              <strong>Banderas en la descripción</strong>
+              21 patrones lingüísticos de estafa-clásica detectados al
+              instante.
+            </span>
           </li>
           <li>
-            <strong>Análisis del vendedor</strong> — cuenta nueva, sin otros
-            anuncios, fotos duplicadas, baja tasa de respuesta.
+            <ShieldCheck size={20} strokeWidth={2} />
+            <span>
+              <strong>Análisis del vendedor</strong>
+              Cuenta nueva, sin otros anuncios, fotos duplicadas, baja
+              tasa de respuesta.
+            </span>
           </li>
           <li>
-            <strong>Escaneo de VIN físico</strong> — la killer feature.
-            Cuando vayas a ver el auto, escanea el VIN del tablero o marco
-            de puerta. Te decimos si NO coincide con el anuncio (placa
-            clonada).
+            <Fingerprint size={20} strokeWidth={2} />
+            <span>
+              <strong>Escaneo de VIN físico</strong>
+              La killer feature. Cuando vayas a ver el auto, escanea el VIN
+              del tablero o marco de puerta. Te decimos si NO coincide con
+              el anuncio (placa clonada).
+            </span>
           </li>
           <li>
-            <strong>Reporte PDF</strong> descargable.
+            <FileText size={20} strokeWidth={2} />
+            <span>
+              <strong>Reporte PDF</strong>
+              Descargable, archivable, compartible con tu mecánico.
+            </span>
           </li>
           <li>
-            <strong>3 preguntas clave</strong> para hacerle al vendedor antes
-            de cerrar.
+            <MessageCircle size={20} strokeWidth={2} />
+            <span>
+              <strong>3 preguntas clave</strong>
+              Las preguntas exactas para hacerle al vendedor antes de cerrar
+              trato.
+            </span>
           </li>
         </ul>
       </section>
