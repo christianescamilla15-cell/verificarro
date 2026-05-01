@@ -1,0 +1,18 @@
+# URLs de ML Motors para campañas de seed reports.
+# Una URL por línea. Comentarios con #.
+# Usa: cd backend && python scripts/seed_reports.py --file ../seeds/urls.txt
+#
+# Recomendación de mix para los primeros 5 threads:
+# - 1 limpio (auto serio de concesionario, score 80+)
+# - 2 amarillos (anuncios populares con banderas medias)
+# - 2 rojos (sospechosos por precio o descripción)
+#
+# Para encontrar URLs:
+# 1. Abre listado.mercadolibre.com.mx/autos
+# 2. Filtra por modelo popular en MX (Civic, Sentra, Jetta, Aveo)
+# 3. Ordena por precio ascendente y descendente
+# 4. Mira anuncios donde la descripción tenga texto largo
+# 5. Toma la URL del card (auto.mercadolibre.com.mx/MLM-...)
+#
+# Ejemplo (validado en D2 smoke test, puede haber cambiado):
+# https://auto.mercadolibre.com.mx/MLM-2899141087-kia-seltos-15-sx-at-_JM

@@ -53,6 +53,9 @@ backend/.cache/
 *.db-wal
 backend/verificarro.db
 
+# Seed reports output (regenerable; PDFs/JSONs no se commitean)
+seeds/output/
+
 # OS
 Thumbs.db
 desktop.ini
