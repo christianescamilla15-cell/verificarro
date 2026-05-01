@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ExternalLink, Factory, Globe } from 'lucide-react'
+import { ExternalLink, Factory, Globe, FileText } from 'lucide-react'
 import { downloadPdf } from '../lib/api.js'
 import FindingList from '../components/FindingList.jsx'
 import KVTable from '../components/KVTable.jsx'
@@ -256,6 +256,27 @@ export default function ReportView({ reportData }) {
               </a>
             ))}
           </div>
+        </section>
+      )}
+
+      {r.invoice && (
+        <section className="report-section invoice-block">
+          <h2>
+            <FileText size={20} strokeWidth={2.2} />
+            Factura del auto — verificación obligatoria
+          </h2>
+          <KVTable rows={[
+            ['Folio declarado', r.invoice.invoice_number || '—'],
+            ['UUID CFDI', r.invoice.folio_fiscal_uuid || (r.invoice.invoice_number ? '(no parece UUID — pide el archivo XML CFDI al vendedor)' : '—')],
+            ['Estado SAT', r.invoice.sat_status
+              ? r.invoice.sat_status === 'vigente' ? '✅ Vigente'
+                : r.invoice.sat_status === 'cancelado' ? '🚨 Cancelada'
+                : '⚠️ No encontrada'
+              : 'Pendiente verificar contra SAT (próxima feature)'],
+          ]} />
+          {r.invoice.notes && (
+            <p className="invoice-notes">{r.invoice.notes}</p>
+          )}
         </section>
       )}
 

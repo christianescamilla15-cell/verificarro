@@ -13,6 +13,7 @@ import { api } from '../lib/api.js'
 export default function PaywallModal({ reportId, onClose }) {
   const [email, setEmail] = useState('')
   const [listingUrl, setListingUrl] = useState('')
+  const [invoiceNumber, setInvoiceNumber] = useState('')
   const [tier, setTier] = useState('basic')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -29,6 +30,7 @@ export default function PaywallModal({ reportId, onClose }) {
       report_id: reportId,
       payer_email: email,
       listing_url: listingUrl || null,
+      invoice_number: invoiceNumber.trim() || null,
       tier,
       title_hint: listingUrl ? extractTitleHint(listingUrl) : null,
     })
@@ -76,6 +78,22 @@ export default function PaywallModal({ reportId, onClose }) {
               Sin URL: REPUVE detallado + escaneo de VIN físico. Con URL:
               además precio justo, análisis de fotos con IA, y banderas en
               la descripción.
+            </small>
+          </label>
+
+          <label>
+            Folio de la factura del auto <span className="muted">(opcional)</span>
+            <input
+              type="text"
+              maxLength={64}
+              placeholder="UUID CFDI o número de folio"
+              value={invoiceNumber}
+              onChange={(e) => setInvoiceNumber(e.target.value)}
+            />
+            <small className="muted">
+              Si el vendedor ya te lo dio, lo incluimos en el reporte como
+              instrucción para que valides que la factura física coincida.
+              Próximamente: validación automática contra SAT.
             </small>
           </label>
 

@@ -60,6 +60,13 @@ class Payment(Base, TimestampMixin):
     listing_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     plate: Mapped[str | None] = mapped_column(String(16), nullable=True)
     vin: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    # Número de factura del auto (folio o UUID CFDI). Opcional al checkout.
+    # Si se provee, el reporte incluye instrucciones explícitas para que el
+    # comprador pida ver la factura física con ese folio. Fase B agregará
+    # OCR + cross-validation; Fase C verificación SAT.
+    invoice_number: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
+    )
 
     paid_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True

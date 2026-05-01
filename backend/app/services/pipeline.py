@@ -195,6 +195,7 @@ async def run_pipeline(req: AnalyzeRequest) -> Report:
     seller_findings = seller_analyzer.analyze(listing)
     vin_check = await _maybe_run_vin_check(req, listing, repuve)
     consultation_links = _build_consultation_links_models(req, listing)
+    invoice_data = _build_invoice_data(req)
 
     report = Report(
         # Placeholder; `scoring.populate` lo sobreescribe a continuación.
@@ -211,13 +212,67 @@ async def run_pipeline(req: AnalyzeRequest) -> Report:
         vin_check=vin_check,
         consultation_links=consultation_links,
         cross_listings=cross_listings,
-        questions_for_seller=[
-            "¿Tienes la factura original y el endoso completo?",
-            "¿Me dejas verificarlo en una agencia o con mi mecánico?",
-            "¿Por qué lo vendes y desde cuándo lo tienes?",
-        ],
+        invoice=invoice_data,
+        questions_for_seller=_build_questions_for_seller(invoice_data),
     )
     return scoring.populate(report)
+
+
+def _build_invoice_data(req: AnalyzeRequest):
+    """Construye `InvoiceData` desde el AnalyzeRequest.
+
+    Fase A: solo guardamos el `invoice_number` declarado por el comprador.
+    Fase B y C agregarán OCR + SAT verification al InvoiceData.
+    """
+    from app.models.report import InvoiceData
+
+    if not req.invoice_number:
+        return None
+
+    cleaned = req.invoice_number.strip()
+    if not cleaned:
+        return None
+
+    # Detección rudimentaria: si parece UUID v4, lo guardamos como folio
+    # fiscal CFDI; si no, como invoice_number genérico.
+    import re
+    is_uuid = bool(re.match(
+        r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+        cleaned, re.IGNORECASE,
+    ))
+
+    return InvoiceData(
+        invoice_number=cleaned,
+        folio_fiscal_uuid=cleaned if is_uuid else None,
+        notes=(
+            "Pídele al vendedor la factura ORIGINAL (impresa o XML CFDI). "
+            "Verifica que el folio coincida con el que aquí declaraste, que "
+            "los datos del auto (marca/modelo/año/NIV) matcheen el anuncio, "
+            "y que el RFC del receptor sea el del vendedor actual. Si no "
+            "tiene factura o el folio no coincide, NO COMPRES."
+        ),
+    )
+
+
+def _build_questions_for_seller(invoice_data) -> list[str]:
+    """3-4 preguntas clave que el comprador debe hacer al vendedor.
+
+    Si el comprador conoce el invoice_number, lo incluimos en una pregunta
+    específica para que pida ver la factura física y compare folio.
+    """
+    base = [
+        "¿Tienes la factura original y el endoso completo? Quiero verla "
+        "antes de pagar cualquier cosa.",
+        "¿Me dejas verificarlo en una agencia o con mi mecánico de confianza?",
+        "¿Por qué lo vendes y desde cuándo lo tienes? "
+        "(Si la respuesta es vaga o cambian la historia → bandera)",
+    ]
+    if invoice_data and invoice_data.invoice_number:
+        base.insert(0, (
+            f"Necesito ver la factura original con folio "
+            f"{invoice_data.invoice_number}. Si no coincide, no compro."
+        ))
+    return base
 
 
 def _build_consultation_links_models(

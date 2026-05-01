@@ -331,6 +331,7 @@ def _build_analyze_request(
     """
     plate = payment.plate or (preview.plate if preview else None)
     vin = payment.vin or (preview.vin if preview else None)
+    invoice_number = payment.invoice_number
 
     if payment.listing_url:
         return AnalyzeRequest(
@@ -338,11 +339,13 @@ def _build_analyze_request(
             source=Source.MERCADOLIBRE,
             plate=plate,
             vin=vin,
+            invoice_number=invoice_number,
         )
     return AnalyzeRequest(
         source=Source.MANUAL,
         plate=plate,
         vin=vin,
+        invoice_number=invoice_number,
         manual_listing=ManualListing(
             title="(escaneado por placa, sin URL del anuncio)",
             price_mxn=0,

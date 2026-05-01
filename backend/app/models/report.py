@@ -31,11 +31,22 @@ class AnalyzeRequest(BaseModel):
     REPUVE auto-consulta puede fallar por reCaptcha de Google. Para esos
     casos, el frontend ofrece un link a repuve.gob.mx y deja al usuario
     pegar el resultado en `repuve_manual`.
+
+    `invoice_number` es opcional — número de factura original del auto.
+    Cuando se provee, lo incluimos en el reporte como item de
+    verificación obligatoria que el comprador debe pedir al vendedor.
+    En Fase B agregamos OCR de la factura para cross-validar contra
+    listing; en Fase C verificamos contra SAT.
     """
 
     url: HttpUrl | None = None
     plate: str | None = Field(default=None, description="Placa para REPUVE")
     vin: str | None = Field(default=None, description="NIV (VIN) para REPUVE")
+    invoice_number: str | None = Field(
+        default=None,
+        max_length=64,
+        description="Número de factura original del auto (folio o UUID CFDI)",
+    )
     source: Source = Source.MERCADOLIBRE
     manual_listing: "ManualListing | None" = None
     repuve_manual: "RepuveManual | None" = Field(
@@ -260,6 +271,27 @@ class VinCheckRequest(BaseModel):
     repuve: RepuveResult | None = None
 
 
+class InvoiceData(BaseModel):
+    """Datos de la factura del auto que el comprador DEBE pedir al vendedor.
+
+    En Fase A (este commit) solo guardamos el `invoice_number` declarado
+    por el comprador y el reporte instruye explícitamente que pida la
+    factura original al vendedor antes de pagar. En Fase B agregamos
+    OCR de la factura para extraer y cross-validar más campos. En Fase C
+    consultamos SAT para validar que el CFDI exista y esté vigente.
+    """
+
+    invoice_number: str | None = None
+    folio_fiscal_uuid: str | None = None  # CFDI UUID (Fase B)
+    rfc_emisor: str | None = None  # Fase B
+    rfc_receptor: str | None = None  # Fase B
+    fecha: datetime | None = None  # Fase B
+    total_mxn: float | None = None  # Fase B
+    sat_status: Literal["vigente", "cancelado", "no_encontrado"] | None = None  # Fase C
+    sat_checked_at: datetime | None = None  # Fase C
+    notes: str = ""
+
+
 class Report(BaseModel):
     score: int = Field(ge=0, le=100)
     risk_level: RiskLevel
@@ -274,6 +306,7 @@ class Report(BaseModel):
     vin_check: VinCheck | None = None
     consultation_links: list[ConsultationLinkModel] = Field(default_factory=list)
     cross_listings: list[CrossListingModel] = Field(default_factory=list)
+    invoice: InvoiceData | None = None
     questions_for_seller: list[str] = Field(default_factory=list)
     generated_at: datetime = Field(default_factory=_utc_now)
 

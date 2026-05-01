@@ -67,6 +67,7 @@ class CheckoutRequest(BaseModel):
     listing_url: HttpUrl | None = None
     plate: str | None = Field(default=None, max_length=16)
     vin: str | None = Field(default=None, max_length=24)
+    invoice_number: str | None = Field(default=None, max_length=64)
     payer_email: str | None = None
     # 4 tiers:
     #   basic   $49  — single report con análisis completo
@@ -150,6 +151,7 @@ async def checkout(req: CheckoutRequest, session: SessionDep) -> CheckoutRespons
         listing_url=str(req.listing_url) if req.listing_url else None,
         plate=plate,
         vin=vin,
+        invoice_number=req.invoice_number.strip() if req.invoice_number else None,
     )
     session.add(payment)
     await session.flush()  # asigna el id
