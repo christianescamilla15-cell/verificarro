@@ -28,12 +28,16 @@ def create_engine_for_url(url: str, *, echo: bool = False) -> AsyncEngine:
 
 
 def get_engine() -> AsyncEngine:
-    """Devuelve el engine global (creado on-demand desde settings)."""
+    """Devuelve el engine global (creado on-demand desde settings).
+
+    Usa `database_url_async` que normaliza el driver — `postgres://`
+    de Render se traduce a `postgresql+asyncpg://` automáticamente.
+    """
     global _engine
     if _engine is None:
         settings = get_settings()
         _engine = create_engine_for_url(
-            settings.database_url, echo=settings.env == "development"
+            settings.database_url_async, echo=settings.env == "development"
         )
     return _engine
 

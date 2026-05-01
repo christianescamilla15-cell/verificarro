@@ -1,5 +1,4 @@
 import asyncio
-import os
 import sys
 from logging.config import fileConfig
 from pathlib import Path
@@ -15,13 +14,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.config import get_settings  # noqa: E402
 from app.db.base import Base  # noqa: E402
-from app.db.models import payment, report, user  # noqa: E402, F401
+# Side-effect import: registra todos los modelos en Base.metadata para
+# que Alembic los descubra con autogenerate.
+import app.db.models  # noqa: E402, F401
 
 config = context.config
 
-# Override la URL del .ini con la del entorno (.env / Render)
+# Override la URL del .ini con la del entorno (.env / Render).
+# Usamos `database_url_async` que normaliza `postgres://` → `postgresql+asyncpg://`
+# para que Alembic pueda conectarse vía el mismo driver async que la app.
 settings = get_settings()
-config.set_main_option("sqlalchemy.url", settings.database_url)
+config.set_main_option("sqlalchemy.url", settings.database_url_async)
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)

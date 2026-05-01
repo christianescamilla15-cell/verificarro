@@ -36,6 +36,27 @@ class Settings(BaseSettings):
         alias="DATABASE_URL",
     )
 
+    @property
+    def database_url_async(self) -> str:
+        """Normaliza la URL de DB al driver async correcto.
+
+        Render entrega `DATABASE_URL=postgres://...` (legacy heroku-style).
+        SQLAlchemy 2.0 + asyncpg necesita `postgresql+asyncpg://...`.
+        Esta property hace la traducción transparente.
+        """
+        url = self.database_url
+        if url.startswith("postgres://"):
+            return "postgresql+asyncpg://" + url.removeprefix("postgres://")
+        if url.startswith("postgresql://") and "+asyncpg" not in url:
+            return "postgresql+asyncpg://" + url.removeprefix("postgresql://")
+        return url
+
+    @property
+    def database_url_sync(self) -> str:
+        """Versión sync para Alembic (que internamente usa async pero la
+        URL en `alembic.ini` puede ser la string async sin tocar)."""
+        return self.database_url_async
+
     # --- Mercado Pago ---
     mp_access_token: str = Field(default="", alias="MP_ACCESS_TOKEN")
     mp_public_key: str = Field(default="", alias="MP_PUBLIC_KEY")

@@ -1,0 +1,110 @@
+# Verificarro — Render Blueprint
+#
+# Para desplegar:
+# 1. Crea cuenta en render.com (vinculada a GitHub)
+# 2. New + → Blueprint → conecta el repo `christianescamilla15-cell/verificarro`
+# 3. Render detecta este archivo y crea Web Service + Postgres juntos
+# 4. Tras el primer deploy, configura los env vars marcados con `sync: false`
+#    en el dashboard (ANTHROPIC_API_KEY, MP_*, JWT_SECRET, SMTP_*).
+# 5. Si actualizas envs sensitivos, Render reinicia automáticamente.
+
+databases:
+  - name: verificarro-db
+    databaseName: verificarro
+    user: verificarro
+    plan: starter # $7/mo, 1GB storage, 256MB RAM, suficiente para MVP
+    region: oregon
+
+services:
+  - type: web
+    name: verificarro-api
+    runtime: python
+    region: oregon
+    plan: starter # $7/mo, 512MB RAM, 0.5 CPU
+    rootDir: backend
+    # Build: instala deps Python + Playwright (Chromium ~200MB) + corre migraciones.
+    # Si el build falla por OOM en Render Starter, considera diferir
+    # `playwright install` al primer request o subir a Standard ($25/mo).
+    buildCommand: |
+      pip install --upgrade pip
+      pip install -r requirements.txt
+      playwright install chromium
+      playwright install-deps chromium
+      alembic upgrade head
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    autoDeploy: true # cada push a main dispara deploy
+    envVars:
+      # --- Server ---
+      - key: ENV
+        value: production
+      - key: PYTHON_VERSION
+        value: "3.12.7"
+      - key: CORS_ORIGINS
+        value: https://verificarro.vercel.app,https://verificarro.mx,https://www.verificarro.mx
+
+      # --- Database (auto-sync desde el database recurso) ---
+      - key: DATABASE_URL
+        fromDatabase:
+          name: verificarro-db
+          property: connectionString
+
+      # --- Anthropic (la app degrada limpio si falta — fotos quedan sin analizar) ---
+      - key: ANTHROPIC_API_KEY
+        sync: false # set en dashboard
+      - key: CLAUDE_VISION_MODEL
+        value: claude-sonnet-4-6
+
+      # --- Auth ---
+      - key: JWT_SECRET
+        generateValue: true # Render genera un valor aleatorio seguro
+      - key: JWT_ALGORITHM
+        value: HS256
+      - key: MAGIC_LINK_TTL_MINUTES
+        value: "15"
+      - key: SESSION_TTL_DAYS
+        value: "30"
+      - key: MAGIC_LINK_BASE_URL
+        value: https://verificarro.vercel.app/auth/verify
+
+      # --- Mercado Pago (set en dashboard tras crear app en MP) ---
+      - key: MP_ACCESS_TOKEN
+        sync: false
+      - key: MP_PUBLIC_KEY
+        sync: false
+      - key: MP_WEBHOOK_SECRET
+        sync: false
+      - key: MP_SUCCESS_URL
+        value: https://verificarro.vercel.app/checkout/success
+      - key: MP_FAILURE_URL
+        value: https://verificarro.vercel.app/checkout/failure
+      - key: MP_PENDING_URL
+        value: https://verificarro.vercel.app/checkout/pending
+
+      # --- Email SMTP (SendGrid recomendado, set en dashboard) ---
+      - key: SMTP_HOST
+        sync: false # ej. smtp.sendgrid.net
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USER
+        sync: false # 'apikey' para SendGrid
+      - key: SMTP_PASSWORD
+        sync: false # API key de SendGrid
+      - key: SMTP_FROM_EMAIL
+        value: hola@verificarro.mx
+      - key: SMTP_FROM_NAME
+        value: Verificarro
+
+      # --- Pricing ---
+      - key: PRICE_BASIC_MXN
+        value: "49"
+      - key: PRICE_PREMIUM_MXN
+        value: "99"
+
+      # --- Scraping ---
+      - key: PLAYWRIGHT_HEADLESS
+        value: "true"
+      - key: SCRAPE_TIMEOUT_MS
+        value: "30000"
+      - key: REPUVE_RATE_LIMIT_PER_SEC
+        value: "1"
