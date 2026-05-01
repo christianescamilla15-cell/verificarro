@@ -45,10 +45,26 @@ class Settings(BaseSettings):
     )
 
     # Proxy residencial MX para REPUVE — sube el éxito del captcha bypass
-    # de ~75% a ~88% porque la IP del solver de 2Captcha y la nuestra
-    # entran al mismo país y rango. Formato: http://user:pass@host:port
-    # Vacío por default (uso direct connection).
+    # de ~30% a ~80% porque la IP del solver de 2Captcha y la nuestra
+    # entran al mismo país y rango.
+    #
+    # Dos formatos soportados (mutuamente exclusivos):
+    #
+    #   1. URL embedida (legacy):
+    #      PROXY_URL=http://user:pass@host:port
+    #      ⚠ Si el password tiene caracteres especiales (+, /, @, :) hay
+    #      que percent-encodearlos. Es frágil.
+    #
+    #   2. Campos separados (preferido):
+    #      PROXY_SERVER=http://host:port
+    #      PROXY_USERNAME=user
+    #      PROXY_PASSWORD=pass (literal, sin encoding)
+    #
+    # Vacío por default (uso direct connection sin proxy).
     proxy_url: str = Field(default="", alias="PROXY_URL")
+    proxy_server: str = Field(default="", alias="PROXY_SERVER")
+    proxy_username: str = Field(default="", alias="PROXY_USERNAME")
+    proxy_password: str = Field(default="", alias="PROXY_PASSWORD")
 
     # Directorio del browser profile persistente — guarda cookies,
     # localStorage, IndexedDB entre runs. Después de algunas consultas,
@@ -106,8 +122,16 @@ class Settings(BaseSettings):
     )
 
     # --- Pricing ---
+    # Tier "search" y "dealer" son passes mensuales (~30 días de uso) que
+    # requieren validación operacional manual hasta que implementemos
+    # subscriptions reales con MP preapproval. El frontend muestra los 4
+    # tiers; el backend acepta payments y nos avisa por email para
+    # activar el pase. Cuando volumen lo justifique, migrar a billing
+    # automático con MP subscriptions.
     price_basic_mxn: float = Field(default=49.0, alias="PRICE_BASIC_MXN")
     price_premium_mxn: float = Field(default=99.0, alias="PRICE_PREMIUM_MXN")
+    price_search_mxn: float = Field(default=199.0, alias="PRICE_SEARCH_MXN")
+    price_dealer_mxn: float = Field(default=1499.0, alias="PRICE_DEALER_MXN")
 
     # --- Auth ---
     # Para JWT signing y HMAC del magic link. CAMBIAR en producción.

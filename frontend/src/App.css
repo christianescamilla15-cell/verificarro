@@ -1151,6 +1151,182 @@ button.icon-button:hover { color: var(--text-primary); background: var(--bg-card
   font-size: var(--fs-base);
 }
 
+/* ===== Pricing page ===== */
+.pricing-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--space-5);
+  padding: var(--space-8) 0;
+}
+.pricing-tier {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xl);
+  padding: var(--space-6);
+  transition: border-color 200ms ease, transform 200ms ease;
+}
+.pricing-tier:hover {
+  border-color: var(--border-default);
+  transform: translateY(-3px);
+}
+.pricing-featured {
+  border-color: var(--primary);
+  background: linear-gradient(180deg, var(--primary-soft), var(--bg-elevated));
+  box-shadow: var(--shadow-glow-primary);
+}
+.pricing-badge {
+  position: absolute;
+  top: -10px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--primary);
+  color: var(--primary-on-solid);
+  padding: 3px 12px;
+  border-radius: var(--radius-full);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.pricing-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: var(--radius-lg);
+  background: var(--gradient-brand);
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: var(--space-4);
+}
+.pricing-tier h3 {
+  font-size: var(--fs-xl);
+  margin: 0 0 var(--space-2);
+}
+.pricing-price {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+.pricing-price .amount {
+  font-size: var(--fs-3xl);
+  font-weight: var(--fw-extrabold);
+  letter-spacing: -0.02em;
+  background: var(--gradient-brand);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.pricing-price .period {
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+}
+.pricing-tagline {
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+  margin-bottom: var(--space-4);
+  min-height: 2.5em;
+}
+.pricing-features {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  flex: 1;
+}
+.pricing-features li {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  font-size: var(--fs-sm);
+  color: var(--text-primary);
+  line-height: var(--lh-snug);
+}
+.pricing-features svg {
+  color: var(--success-text);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.tier-cta {
+  width: 100%;
+  margin-top: auto;
+}
+.pricing-finetext {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  text-align: center;
+  margin-top: var(--space-3);
+  margin-bottom: 0;
+}
+
+/* Compare table */
+.pricing-compare {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+.compare-row {
+  display: grid;
+  grid-template-columns: 1.5fr 1fr 1fr 1fr 1fr;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border-subtle);
+  align-items: center;
+}
+.compare-row:last-child { border-bottom: none; }
+.compare-row > div { font-size: var(--fs-sm); color: var(--text-primary); }
+.compare-row > div:first-child {
+  color: var(--text-secondary);
+  font-weight: var(--fw-medium);
+}
+.compare-head {
+  background: var(--bg-card);
+  font-weight: var(--fw-bold);
+}
+.compare-head > div { color: var(--text-primary) !important; }
+
+/* Tier checkout helpers */
+.tier-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+.tier-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: var(--radius-lg);
+  background: var(--gradient-brand);
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.tier-summary {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--bg-card);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+}
+
+@media (max-width: 768px) {
+  .compare-row { grid-template-columns: 1fr; gap: 0; }
+  .compare-row > div { padding: 4px 0; }
+  .compare-row > div:first-child { font-weight: var(--fw-bold); margin-top: var(--space-2); }
+  .compare-head { display: none; }
+}
+
 /* ===== Footer ===== */
 .footer {
   text-align: center;

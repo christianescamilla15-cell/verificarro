@@ -21,6 +21,7 @@ export default function Header() {
         <span>verifica<span className="brand-accent">rro</span></span>
       </Link>
       <nav className="header-nav">
+        <Link to="/precios" className="header-link">Precios</Link>
         {!loading && user && (
           <>
             <span className="header-email">{user.email}</span>

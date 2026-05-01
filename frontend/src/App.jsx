@@ -4,8 +4,10 @@ import AuthVerify from './pages/AuthVerify.jsx'
 import CheckoutFailure from './pages/CheckoutFailure.jsx'
 import CheckoutPending from './pages/CheckoutPending.jsx'
 import CheckoutSuccess from './pages/CheckoutSuccess.jsx'
+import CheckoutTier from './pages/CheckoutTier.jsx'
 import Landing from './pages/Landing.jsx'
 import Login from './pages/Login.jsx'
+import Pricing from './pages/Pricing.jsx'
 import PreviewReport from './pages/PreviewReport.jsx'
 
 export default function App() {
@@ -14,7 +16,9 @@ export default function App() {
       <Header />
       <Routes>
         <Route path="/" element={<Landing />} />
+        <Route path="/precios" element={<Pricing />} />
         <Route path="/preview/:reportId" element={<PreviewReport />} />
+        <Route path="/checkout-tier" element={<CheckoutTier />} />
         <Route path="/login" element={<Login />} />
         <Route path="/auth/verify" element={<AuthVerify />} />
         <Route path="/checkout/success" element={<CheckoutSuccess />} />

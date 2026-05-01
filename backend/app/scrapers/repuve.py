@@ -172,11 +172,17 @@ async def _run_query(plate: str | None, vin: str | None) -> RepuveResult:
         "--disable-features=IsolateOrigins,site-per-process",
     ]
 
-    # Proxy residencial (toggle por env var) — sube tasa éxito a ~88%
-    proxy_config = None
-    if settings.proxy_url:
-        proxy_config = {"server": settings.proxy_url}
-        logger.warning("Usando proxy: %s", settings.proxy_url.split("@")[-1])
+    # Proxy residencial (toggle por env var) — sube tasa éxito a ~80%
+    # Soporta dos formatos: (1) URL embedida con user:pass@ o (2) campos
+    # separados PROXY_SERVER/USERNAME/PASSWORD. (2) es preferido porque
+    # no requiere percent-encoding de chars especiales en el password.
+    proxy_config = _build_proxy_config(settings)
+    if proxy_config:
+        host = proxy_config["server"].split("://")[-1]
+        has_auth = "username" in proxy_config
+        logger.warning(
+            "Usando proxy: %s (auth=%s)", host, "yes" if has_auth else "no"
+        )
 
     # Browser context PERSISTENTE: reusa profile dir entre runs para
     # acumular cookies / localStorage / IndexedDB. Después de algunas
@@ -806,6 +812,43 @@ def _strip_html(html: str) -> str:
 
 # ---------------------------------------------------------------------------
 # Validation helpers
+
+
+def _build_proxy_config(settings) -> dict | None:
+    """Construye el dict `proxy=` para Playwright desde los settings.
+
+    Soporta dos formatos (en orden de prioridad):
+
+      1. PROXY_SERVER + PROXY_USERNAME + PROXY_PASSWORD (preferido,
+         sin encoding issues)
+      2. PROXY_URL legacy con user:pass@ embedido
+
+    Devuelve None si ningún proxy está configurado.
+    """
+    if settings.proxy_server:
+        cfg = {"server": settings.proxy_server}
+        if settings.proxy_username:
+            cfg["username"] = settings.proxy_username
+            cfg["password"] = settings.proxy_password
+        return cfg
+
+    if settings.proxy_url:
+        # Parse URL embedida — legacy. Si el password tiene `+` o `/`,
+        # mejor migrar a PROXY_SERVER/USERNAME/PASSWORD.
+        from urllib.parse import urlparse
+
+        parsed = urlparse(settings.proxy_url)
+        host_port = (
+            f"{parsed.scheme}://{parsed.hostname}"
+            f"{':' + str(parsed.port) if parsed.port else ''}"
+        )
+        cfg = {"server": host_port}
+        if parsed.username:
+            cfg["username"] = parsed.username
+            cfg["password"] = parsed.password or ""
+        return cfg
+
+    return None
 
 
 def _normalize_plate(plate: str) -> str:

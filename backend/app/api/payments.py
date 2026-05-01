@@ -68,7 +68,12 @@ class CheckoutRequest(BaseModel):
     plate: str | None = Field(default=None, max_length=16)
     vin: str | None = Field(default=None, max_length=24)
     payer_email: str | None = None
-    tier: str = Field(default="basic", pattern=r"^(basic|premium)$")
+    # 4 tiers:
+    #   basic   $49  — single report con análisis completo
+    #   premium $99  — basic + soporte WhatsApp
+    #   search  $199 — pase 30 días, hasta 50 reportes (búsqueda activa)
+    #   dealer  $1499 — pase 30 días, hasta 500 reportes (lotero)
+    tier: str = Field(default="basic", pattern=r"^(basic|premium|search|dealer)$")
     title_hint: str | None = Field(
         default=None, max_length=120,
         description=(
@@ -106,11 +111,7 @@ async def checkout(req: CheckoutRequest, session: SessionDep) -> CheckoutRespons
     Report y enlaza Payment ↔ Report (bidireccional).
     """
     settings = get_settings()
-    amount = (
-        settings.price_premium_mxn
-        if req.tier == "premium"
-        else settings.price_basic_mxn
-    )
+    amount = _amount_for_tier(req.tier, settings)
     external_ref = str(uuid.uuid4())
 
     preview_report: ReportRecord | None = None
@@ -323,6 +324,16 @@ async def payment_status(
 
 # ---------------------------------------------------------------------------
 # Helpers
+
+
+def _amount_for_tier(tier: str, settings) -> float:
+    """Resuelve el precio MXN del tier solicitado."""
+    return {
+        "basic": settings.price_basic_mxn,
+        "premium": settings.price_premium_mxn,
+        "search": settings.price_search_mxn,
+        "dealer": settings.price_dealer_mxn,
+    }.get(tier, settings.price_basic_mxn)
 
 
 def _map_mp_status(mp_status: str) -> PaymentStatus:
