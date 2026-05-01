@@ -58,6 +58,34 @@ class Settings(BaseSettings):
     price_basic_mxn: float = Field(default=49.0, alias="PRICE_BASIC_MXN")
     price_premium_mxn: float = Field(default=99.0, alias="PRICE_PREMIUM_MXN")
 
+    # --- Auth ---
+    # Para JWT signing y HMAC del magic link. CAMBIAR en producción.
+    jwt_secret: str = Field(
+        default="dev-only-change-in-production-9f8a3b2c1d4e5f6a",
+        alias="JWT_SECRET",
+    )
+    jwt_algorithm: str = Field(default="HS256", alias="JWT_ALGORITHM")
+    magic_link_ttl_minutes: int = Field(
+        default=15, alias="MAGIC_LINK_TTL_MINUTES"
+    )
+    session_ttl_days: int = Field(default=30, alias="SESSION_TTL_DAYS")
+    # URL base donde el frontend recibe el verify del magic link
+    magic_link_base_url: str = Field(
+        default="http://localhost:5173/auth/verify",
+        alias="MAGIC_LINK_BASE_URL",
+    )
+
+    # --- Email (SMTP) ---
+    # En dev se imprime el link al stdout cuando smtp_host está vacío.
+    smtp_host: str = Field(default="", alias="SMTP_HOST")
+    smtp_port: int = Field(default=587, alias="SMTP_PORT")
+    smtp_user: str = Field(default="", alias="SMTP_USER")
+    smtp_password: str = Field(default="", alias="SMTP_PASSWORD")
+    smtp_from_email: str = Field(
+        default="hola@verificarro.mx", alias="SMTP_FROM_EMAIL"
+    )
+    smtp_from_name: str = Field(default="Verificarro", alias="SMTP_FROM_NAME")
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
