@@ -28,14 +28,17 @@ from pydantic import BaseModel, Field, HttpUrl
 from sqlalchemy import select
 
 from app.config import get_settings
-from app.db.models import Payment, PaymentStatus, ReportRecord
+from app.db.models import Payment, PaymentStatus, ReportRecord, ReportStatus
 from app.db.session import SessionDep
 from app.services.mercadopago import (
     CheckoutPreference,
     create_preference,
     get_payment_info,
 )
-from app.services.report_generator import generate_report_for_payment
+from app.services.report_generator import (
+    generate_report_for_payment,
+    unlock_report_for_payment,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -43,8 +46,24 @@ router = APIRouter(tags=["payments"])
 
 
 class CheckoutRequest(BaseModel):
-    """Body de `POST /api/payments/checkout`."""
+    """Body de `POST /api/payments/checkout`.
 
+    Dos modos:
+
+    - **Scan-first (preferido)**: el frontend pasa `report_id` del
+      preview ya creado por `/api/scan/plate`. Backend lo enlaza con
+      este Payment y, al confirmar, el webhook reescribe ese mismo
+      ReportRecord con el reporte completo.
+    - **Legacy**: si NO viene `report_id` (e.g. flow antiguo de URL +
+      email manual), backend acepta `listing_url`/`plate`/`vin`
+      directos y genera un nuevo Report tras el pago.
+    """
+
+    report_id: str | None = Field(
+        default=None,
+        max_length=36,
+        description="ID del ReportRecord preview creado por /api/scan/plate",
+    )
     listing_url: HttpUrl | None = None
     plate: str | None = Field(default=None, max_length=16)
     vin: str | None = Field(default=None, max_length=24)
@@ -75,12 +94,17 @@ class PaymentStatusResponse(BaseModel):
     tier: str
     paid_at: datetime | None = None
     report_id: str | None = None
+    report_status: str | None = None  # preview | unlocked
     report_json: dict[str, Any] | None = None
 
 
 @router.post("/payments/checkout", response_model=CheckoutResponse)
 async def checkout(req: CheckoutRequest, session: SessionDep) -> CheckoutResponse:
-    """Crea un Payment pending y la Preference de MP."""
+    """Crea un Payment pending y la Preference de MP.
+
+    Si `report_id` viene set, hidrata `plate`/`vin` desde ese preview
+    Report y enlaza Payment ↔ Report (bidireccional).
+    """
     settings = get_settings()
     amount = (
         settings.price_premium_mxn
@@ -88,6 +112,29 @@ async def checkout(req: CheckoutRequest, session: SessionDep) -> CheckoutRespons
         else settings.price_basic_mxn
     )
     external_ref = str(uuid.uuid4())
+
+    preview_report: ReportRecord | None = None
+    plate = req.plate
+    vin = req.vin
+    if req.report_id:
+        result = await session.execute(
+            select(ReportRecord).where(ReportRecord.id == req.report_id)
+        )
+        preview_report = result.scalar_one_or_none()
+        if not preview_report:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Reporte preview {req.report_id} no existe",
+            )
+        if preview_report.status == ReportStatus.UNLOCKED:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Este reporte ya está desbloqueado",
+            )
+        # Snapshot plate/vin del preview al Payment
+        plate = plate or preview_report.plate
+        vin = vin or preview_report.vin
+
     title = (
         f"Verificarro {req.tier} — {req.title_hint}"
         if req.title_hint
@@ -100,11 +147,15 @@ async def checkout(req: CheckoutRequest, session: SessionDep) -> CheckoutRespons
         status=PaymentStatus.PENDING,
         mp_external_reference=external_ref,
         listing_url=str(req.listing_url) if req.listing_url else None,
-        plate=req.plate,
-        vin=req.vin,
+        plate=plate,
+        vin=vin,
     )
     session.add(payment)
     await session.flush()  # asigna el id
+
+    # Linkamos preview Report → Payment (idempotente, mismo ID si re-checkout)
+    if preview_report is not None:
+        preview_report.payment_id = payment.id
 
     try:
         pref: CheckoutPreference = await create_preference(
@@ -114,6 +165,7 @@ async def checkout(req: CheckoutRequest, session: SessionDep) -> CheckoutRespons
             payer_email=req.payer_email,
             metadata={
                 "payment_id": payment.id,
+                "report_id": req.report_id,
                 "listing_url": str(req.listing_url) if req.listing_url else None,
                 "tier": req.tier,
             },
@@ -197,15 +249,31 @@ async def webhook(
     payment.mp_payment_id = info.payment_id
     if new_status == PaymentStatus.PAID:
         payment.paid_at = datetime.now(UTC)
-        # Encolamos la generación del reporte: corre después de que
-        # esta response se envía a MP. La task abre su propia DB
-        # session para no depender de este request.
-        background.add_task(generate_report_for_payment, payment.id)
+        # Encolamos generación. Si el Payment está enlazado con un
+        # preview Report (scan-first flow) reescribimos ese registro;
+        # si no hay preview (legacy), creamos un ReportRecord nuevo.
+        has_preview = await _payment_has_preview(session, payment.id)
+        task = (
+            unlock_report_for_payment if has_preview
+            else generate_report_for_payment
+        )
+        background.add_task(task, payment.id)
         logger.info(
-            "Payment %s confirmado — generación de reporte encolada",
-            payment.id,
+            "Payment %s confirmado — %s encolado",
+            payment.id, task.__name__,
         )
     return {"ok": True, "status": new_status.value}
+
+
+async def _payment_has_preview(session, payment_id: str) -> bool:
+    """True si el Payment tiene un ReportRecord preview enlazado."""
+    result = await session.execute(
+        select(ReportRecord.id).where(
+            ReportRecord.payment_id == payment_id,
+            ReportRecord.status == ReportStatus.PREVIEW,
+        )
+    )
+    return result.scalar_one_or_none() is not None
 
 
 @router.get(
@@ -226,14 +294,19 @@ async def payment_status(
         )
 
     report_id: str | None = None
+    report_status: str | None = None
     report_json: dict | None = None
-    if payment.status == PaymentStatus.PAID:
-        rep_result = await session.execute(
-            select(ReportRecord).where(ReportRecord.payment_id == payment.id)
-        )
-        report = rep_result.scalar_one_or_none()
-        if report:
-            report_id = report.id
+    rep_result = await session.execute(
+        select(ReportRecord).where(ReportRecord.payment_id == payment.id)
+    )
+    report = rep_result.scalar_one_or_none()
+    if report:
+        report_id = report.id
+        report_status = report.status.value
+        # Solo entregamos el JSON completo cuando el reporte está unlocked.
+        # Mientras esté preview, el frontend ya tiene el preview localmente
+        # y debe esperar a que el background task termine el upgrade.
+        if report.status == ReportStatus.UNLOCKED:
             report_json = report.report_json
 
     return PaymentStatusResponse(
@@ -243,6 +316,7 @@ async def payment_status(
         tier=payment.tier,
         paid_at=payment.paid_at,
         report_id=report_id,
+        report_status=report_status,
         report_json=report_json,
     )
 

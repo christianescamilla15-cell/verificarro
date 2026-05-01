@@ -1,4 +1,13 @@
-"""End-to-end pipeline. D2 wires the ML Motors scraper; D3-D7 plug in next."""
+"""End-to-end pipeline. D2 wires the ML Motors scraper; D3-D7 plug in next.
+
+Two entry points:
+
+- ``run_pipeline(req)`` — full pipeline. Requiere `url` o `manual_listing`.
+  Lo dispara el background task tras el pago confirmado (unlock).
+- ``run_preview_pipeline(plate, vin)`` — pipeline ligero, solo REPUVE +
+  scoring básico. No requiere listing. Se usa al escanear la placa
+  para mostrar un preview gratis (scan-first flow, 2026-05-01).
+"""
 
 import asyncio
 import logging
@@ -23,6 +32,116 @@ from app.analyzers import (
 from app.scrapers import mercadolibre, ml_search, repuve
 
 logger = logging.getLogger(__name__)
+
+
+_PREVIEW_PLACEHOLDER_LISTING = ListingData(
+    source=Source.MANUAL,
+    title="(escaneado por placa, sin anuncio)",
+    price_mxn=0,
+    year=0,
+    make="",
+    model="",
+    kilometers=0,
+    location="",
+    description="",
+    seller_name="",
+    photo_urls=[],
+)
+
+
+async def run_preview_pipeline(
+    plate: str | None = None, vin: str | None = None
+) -> Report:
+    """Pipeline ligero para el scan-first flow.
+
+    Solo consulta REPUVE — no scrapea anuncio, no analiza fotos, no
+    estima precio. Usa scoring estándar pero con listing placeholder,
+    así que el score reflejará principalmente el resultado de REPUVE.
+
+    Si REPUVE falla (reCaptcha) devolvemos el reporte igual con
+    `repuve.queried=False` y un score conservador. La UI muestra el
+    estado y el usuario puede pagar para que el unlock corra el
+    pipeline completo (y, opcionalmente, REPUVE manual via captcha).
+    """
+    if not plate and not vin:
+        raise ValueError("Se requiere placa o VIN para el preview")
+
+    repuve_result = await _run_repuve(plate=plate, vin=vin)
+
+    report = Report(
+        score=0,
+        risk_level=RiskLevel.RED,
+        summary="",
+        listing=_PREVIEW_PLACEHOLDER_LISTING,
+        repuve=repuve_result,
+        price=PriceEstimate(comparables_count=0, sources=[]),
+        photo_findings=[],
+        description_findings=[],
+        seller_findings=[],
+        vin_check=None,
+        questions_for_seller=[],
+    )
+    report = scoring.populate(report)
+    report.summary = _build_preview_summary(report.score, report.risk_level, repuve_result)
+    return report
+
+
+def _build_preview_summary(
+    score: int, risk: RiskLevel, repuve: RepuveResult
+) -> str:
+    """Summary específico del preview — explícito sobre qué SÍ se chequeó.
+
+    El summary del scoring estándar narra el anuncio, pero en preview
+    no hay anuncio. Aquí explicamos qué hicimos (REPUVE) y qué falta
+    desbloquear (precio, fotos IA, descripción).
+    """
+    if repuve.is_stolen is True:
+        return (
+            f"🚨 ALERTA: REPUVE marca este vehículo como ROBADO. "
+            f"Score: {score}/100. NO COMPRES ESTE AUTO."
+        )
+    if not repuve.queried:
+        why = repuve.error or "REPUVE no respondió"
+        return (
+            f"Preview ({score}/100): REPUVE no se pudo consultar "
+            f"automáticamente — {why} Desbloquea el reporte completo para "
+            "que verifiquemos REPUVE manualmente, comparemos contra el "
+            "precio justo del mercado y analicemos fotos del anuncio con IA."
+        )
+    if repuve.has_legal_status is False:
+        return (
+            f"⚠️ Preview ({score}/100): REPUVE indica situación legal "
+            "irregular. Desbloquea el reporte completo para ver detalles, "
+            "comparar precio justo y revisar el anuncio."
+        )
+    if risk == RiskLevel.GREEN:
+        return (
+            f"✅ Preview ({score}/100): REPUVE no muestra reporte de robo. "
+            "Desbloquea el reporte completo para verificar precio justo "
+            "vs ~50 anuncios similares, análisis de fotos con IA y "
+            "banderas en la descripción del vendedor."
+        )
+    return (
+        f"Preview ({score}/100): hay puntos a revisar. Desbloquea el "
+        "reporte completo para análisis del anuncio, precio justo, "
+        "fotos con IA y más."
+    )
+
+
+async def _run_repuve(
+    plate: str | None, vin: str | None
+) -> RepuveResult:
+    """Wrapper resiliente de `repuve.query` para el preview pipeline."""
+    try:
+        return await repuve.query(plate=plate, vin=vin)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("REPUVE query falló durante preview")
+        return RepuveResult(
+            queried=False,
+            plate=plate,
+            vin=vin,
+            error=f"Error inesperado en REPUVE: {exc}",
+        )
 
 
 async def run_pipeline(req: AnalyzeRequest) -> Report:

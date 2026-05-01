@@ -10,15 +10,33 @@ Las columnas dedicadas son las que se usan para queries / analytics:
 - `make`, `model`, `year` para búsqueda
 - `source_url` para deduplicación (mismo URL → mismo reporte cacheado
   por 24h)
+
+## Status (2026-05-01 scan-first rework)
+
+`status` distingue dos fases del mismo registro:
+
+- `preview` — generado al escanear placa, contiene solo score + verdict
+  + REPUVE básico. Visible sin pagar.
+- `unlocked` — tras Payment confirmado, el background task corre el
+  pipeline completo y reescribe `report_json`.
+
+Esto permite que el `report_id` sea estable desde el primer momento
+(URL `/preview/{id}` no cambia tras el pago).
 """
 
+import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Index, Integer, String
+from sqlalchemy import JSON, DateTime, Enum, ForeignKey, Index, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, TimestampMixin
+
+
+class ReportStatus(str, enum.Enum):
+    PREVIEW = "preview"
+    UNLOCKED = "unlocked"
 
 
 class ReportRecord(Base, TimestampMixin):
@@ -48,6 +66,16 @@ class ReportRecord(Base, TimestampMixin):
     score: Mapped[int] = mapped_column(Integer, nullable=False)
     risk_level: Mapped[str] = mapped_column(String(16), nullable=False)
 
+    # preview (gratis, solo placa + REPUVE) | unlocked (tras pago, full pipeline)
+    status: Mapped[ReportStatus] = mapped_column(
+        Enum(ReportStatus, native_enum=False, length=16),
+        nullable=False, default=ReportStatus.PREVIEW,
+    )
+
+    # Datos del scan inicial (preview) — preservados al unlock
+    plate: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    vin: Mapped[str | None] = mapped_column(String(24), nullable=True)
+
     # JSON completo del Report (Pydantic .model_dump(mode="json"))
     report_json: Mapped[dict] = mapped_column(JSON, nullable=False)
 
@@ -66,7 +94,11 @@ class ReportRecord(Base, TimestampMixin):
     __table_args__ = (
         Index("ix_reports_listing_hash_expires", "listing_hash", "expires_at"),
         Index("ix_reports_user_created", "user_id", "created_at"),
+        Index("ix_reports_status", "status"),
     )
 
     def __repr__(self) -> str:
-        return f"<Report id={self.id} score={self.score} risk={self.risk_level}>"
+        return (
+            f"<Report id={self.id} status={self.status.value} "
+            f"score={self.score} risk={self.risk_level}>"
+        )

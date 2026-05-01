@@ -32,7 +32,7 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 
-from app.db.models import Payment, PaymentStatus, ReportRecord
+from app.db.models import Payment, PaymentStatus, ReportRecord, ReportStatus
 from app.db.session import get_session_factory
 from app.models.report import AnalyzeRequest, ManualListing, Source
 from app.services.pipeline import run_pipeline
@@ -41,6 +41,106 @@ logger = logging.getLogger(__name__)
 
 
 CACHE_TTL_HOURS = 24
+
+
+async def unlock_report_for_payment(payment_id: str) -> str | None:
+    """Sube un ReportRecord de `preview` → `unlocked` corriendo el pipeline completo.
+
+    Diseñado para el scan-first flow (2026-05-01):
+    - El preview Report ya existe (creado por `/api/scan/plate`) y tiene
+      `payment_id` set tras `/api/payments/checkout`.
+    - Aquí buscamos ese preview, ejecutamos `run_pipeline` con la URL
+      del anuncio (si el usuario la pegó al checkout) o sin ella, y
+      reescribimos `report_json` + `status='unlocked'`.
+
+    Idempotente: si el report ya está unlocked, devolvemos su id sin
+    re-correr el pipeline.
+
+    Si no hay preview enlazado (no debería pasar — el webhook ya
+    eligió esta función vs `generate_report_for_payment`), caemos al
+    flow legacy que crea uno nuevo.
+    """
+    factory = get_session_factory()
+    async with factory() as session:
+        try:
+            payment = (
+                await session.execute(
+                    select(Payment).where(Payment.id == payment_id)
+                )
+            ).scalar_one_or_none()
+            if not payment or payment.status != PaymentStatus.PAID:
+                logger.warning(
+                    "unlock: Payment %s no PAID (estado=%s)",
+                    payment_id,
+                    payment.status.value if payment else "missing",
+                )
+                return None
+
+            preview = (
+                await session.execute(
+                    select(ReportRecord).where(
+                        ReportRecord.payment_id == payment_id
+                    )
+                )
+            ).scalar_one_or_none()
+
+            if preview is None:
+                logger.warning(
+                    "unlock: Payment %s sin preview, fallback a legacy",
+                    payment_id,
+                )
+                return await generate_report_for_payment(payment_id)
+
+            if preview.status == ReportStatus.UNLOCKED:
+                logger.info(
+                    "unlock: Report %s ya unlocked, idempotente",
+                    preview.id,
+                )
+                return preview.id
+
+            # Pipeline completo. Si no hay listing_url, run_pipeline
+            # explota — capturamos y dejamos el preview como está
+            # (el usuario obtuvo lo que se le ofreció: REPUVE detallado).
+            req = _build_analyze_request(payment, preview)
+            try:
+                report = await run_pipeline(req)
+            except ValueError as exc:
+                logger.warning(
+                    "unlock: pipeline no pudo correr (%s) — marcando "
+                    "preview como unlocked sin upgrade", exc,
+                )
+                preview.status = ReportStatus.UNLOCKED
+                await session.commit()
+                return preview.id
+
+            preview.report_json = report.model_dump(mode="json")
+            preview.score = report.score
+            preview.risk_level = report.risk_level.value
+            preview.make = report.listing.make or None
+            preview.model = report.listing.model or None
+            preview.year = report.listing.year or None
+            preview.price_mxn = report.listing.price_mxn or None
+            preview.source_url = (
+                str(payment.listing_url) if payment.listing_url else None
+            )
+            preview.status = ReportStatus.UNLOCKED
+            preview.expires_at = datetime.now(UTC) + timedelta(
+                hours=CACHE_TTL_HOURS
+            )
+            await session.commit()
+            logger.info(
+                "unlock: Report %s upgraded a unlocked (payment %s)",
+                preview.id,
+                payment_id,
+            )
+            return preview.id
+
+        except Exception:
+            logger.exception(
+                "unlock: falló para payment %s", payment_id
+            )
+            await session.rollback()
+            return None
 
 
 async def generate_report_for_payment(payment_id: str) -> str | None:
@@ -146,28 +246,34 @@ async def generate_report_for_payment(payment_id: str) -> str | None:
             return None
 
 
-def _build_analyze_request(payment: Payment) -> AnalyzeRequest:
-    """Construye `AnalyzeRequest` desde los datos del Payment.
+def _build_analyze_request(
+    payment: Payment, preview: ReportRecord | None = None
+) -> AnalyzeRequest:
+    """Construye `AnalyzeRequest` desde Payment (+ preview opcional).
+
+    Plate/VIN gana del Payment (snapshot al checkout); si está vacío,
+    cae al preview (snapshot al scan).
 
     Si Payment tiene `listing_url`, usamos source=mercadolibre con la
-    URL. Si no, usamos manual_listing con un placeholder mínimo (en
-    práctica esto solo pasa si el frontend explícitamente saltó el
-    scrape — para MVP siempre habrá listing_url).
+    URL. Si no, usamos manual_listing con un placeholder mínimo — el
+    pipeline correrá REPUVE pero no precio ni fotos.
     """
+    plate = payment.plate or (preview.plate if preview else None)
+    vin = payment.vin or (preview.vin if preview else None)
+
     if payment.listing_url:
         return AnalyzeRequest(
             url=payment.listing_url,  # type: ignore[arg-type]
             source=Source.MERCADOLIBRE,
-            plate=payment.plate,
-            vin=payment.vin,
+            plate=plate,
+            vin=vin,
         )
-    # Fallback: manual con datos mínimos
     return AnalyzeRequest(
         source=Source.MANUAL,
-        plate=payment.plate,
-        vin=payment.vin,
+        plate=plate,
+        vin=vin,
         manual_listing=ManualListing(
-            title="(sin datos del anuncio)",
+            title="(escaneado por placa, sin URL del anuncio)",
             price_mxn=0,
             year=0,
             make="",
