@@ -23,7 +23,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, status
 from pydantic import BaseModel, Field, HttpUrl
 from sqlalchemy import select
 
@@ -35,6 +35,7 @@ from app.services.mercadopago import (
     create_preference,
     get_payment_info,
 )
+from app.services.report_generator import generate_report_for_payment
 
 logger = logging.getLogger(__name__)
 
@@ -137,7 +138,11 @@ async def checkout(req: CheckoutRequest, session: SessionDep) -> CheckoutRespons
 
 
 @router.post("/payments/webhook")
-async def webhook(request: Request, session: SessionDep) -> dict[str, Any]:
+async def webhook(
+    request: Request,
+    session: SessionDep,
+    background: BackgroundTasks,
+) -> dict[str, Any]:
     """Recibe webhooks de Mercado Pago (topic=payment).
 
     MP manda el body con `{type: 'payment', data: {id: <mp_payment_id>}}`.
@@ -192,8 +197,12 @@ async def webhook(request: Request, session: SessionDep) -> dict[str, Any]:
     payment.mp_payment_id = info.payment_id
     if new_status == PaymentStatus.PAID:
         payment.paid_at = datetime.now(UTC)
+        # Encolamos la generación del reporte: corre después de que
+        # esta response se envía a MP. La task abre su propia DB
+        # session para no depender de este request.
+        background.add_task(generate_report_for_payment, payment.id)
         logger.info(
-            "Payment %s confirmado — disparar generación de reporte",
+            "Payment %s confirmado — generación de reporte encolada",
             payment.id,
         )
     return {"ok": True, "status": new_status.value}
