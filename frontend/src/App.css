@@ -484,6 +484,122 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .alert-low { background: #1c2129; color: #cbd5e1; }
 .error-box { padding: 1rem; }
 
+/* ===== Scan-first Landing (2026-05-01) ===== */
+.hero-cta {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+}
+.hero-button {
+  font-size: 1.25rem;
+  padding: 1rem 2rem;
+  min-width: 280px;
+}
+
+/* ===== PlateScanner: mode selector ===== */
+.scan-modes {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.5rem 0;
+}
+.scan-modes button {
+  width: 100%;
+  text-align: center;
+}
+.scan-modes .small {
+  font-size: 0.85rem;
+  margin-top: 0.5rem;
+}
+.manual-kind-toggle {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+.manual-kind-toggle label {
+  flex: 1;
+  text-align: center;
+  padding: 0.5rem;
+  border: 1px solid #2a313b;
+  border-radius: 6px;
+  cursor: pointer;
+  background: #0f141b;
+}
+.manual-kind-toggle label.active {
+  border-color: #ffb84d;
+  background: rgba(255, 184, 77, 0.08);
+}
+.manual-kind-toggle input { display: none; }
+
+/* ===== Preview report ===== */
+.preview-view .report-summary {
+  background: #131923;
+  border-left: 3px solid #ffb84d;
+  padding: 0.75rem 1rem;
+  border-radius: 4px;
+}
+.paywall-cta {
+  background: linear-gradient(180deg, rgba(255, 184, 77, 0.1), transparent);
+  border: 1px solid rgba(255, 184, 77, 0.4);
+  border-radius: 8px;
+  padding: 1.25rem;
+  text-align: center;
+}
+.paywall-cta h2 { margin-top: 0; }
+.locked-preview { opacity: 0.85; }
+.locked-heading {
+  color: #6b7280;
+  font-weight: 500;
+}
+.locked-list {
+  list-style: none;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.locked-list li {
+  padding: 0.6rem 0.8rem;
+  background: #0f141b;
+  border: 1px dashed #2a313b;
+  border-radius: 6px;
+  color: #94a3b8;
+  font-size: 0.92rem;
+}
+.locked-list li strong { color: #cbd5e1; }
+
+/* ===== Paywall modal ===== */
+.paywall-modal { max-width: 480px; }
+.paywall-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+.paywall-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-weight: 500;
+}
+.paywall-form input {
+  padding: 0.6rem 0.75rem;
+  background: #0f141b;
+  border: 1px solid #2a313b;
+  color: #e6e8eb;
+  border-radius: 6px;
+  font-size: 1rem;
+}
+.paywall-form input:focus {
+  outline: none;
+  border-color: #ffb84d;
+}
+.paywall-form small {
+  font-size: 0.82rem;
+  font-weight: 400;
+}
+
 /* ===== Footer ===== */
 .footer {
   text-align: center;

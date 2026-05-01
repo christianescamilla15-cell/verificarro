@@ -40,7 +40,9 @@ export default function CheckoutSuccess() {
         return
       }
       setPaymentStatus(res.data.status)
-      if (res.data.report_json) {
+      // Solo mostramos el reporte cuando está unlocked. Mientras esté
+      // preview el background task aún está corriendo el pipeline.
+      if (res.data.report_status === 'unlocked' && res.data.report_json) {
         setReport(res.data.report_json)
         return
       }

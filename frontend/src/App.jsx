@@ -6,6 +6,7 @@ import CheckoutPending from './pages/CheckoutPending.jsx'
 import CheckoutSuccess from './pages/CheckoutSuccess.jsx'
 import Landing from './pages/Landing.jsx'
 import Login from './pages/Login.jsx'
+import PreviewReport from './pages/PreviewReport.jsx'
 
 export default function App() {
   return (
@@ -13,6 +14,7 @@ export default function App() {
       <Header />
       <Routes>
         <Route path="/" element={<Landing />} />
+        <Route path="/preview/:reportId" element={<PreviewReport />} />
         <Route path="/login" element={<Login />} />
         <Route path="/auth/verify" element={<AuthVerify />} />
         <Route path="/checkout/success" element={<CheckoutSuccess />} />
