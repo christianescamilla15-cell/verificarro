@@ -51,12 +51,17 @@ _POLL_MAX_SECONDS = 120  # 2Captcha promete <60s típico, damos margen 2x
 _HTTP_TIMEOUT_SEC = 15.0
 
 
-async def solve_recaptcha_v2(sitekey: str, page_url: str) -> str | None:
+async def solve_recaptcha_v2(
+    sitekey: str, page_url: str, *, invisible: bool = False
+) -> str | None:
     """Resuelve un reCaptcha v2 vía 2Captcha. Devuelve el token o None.
 
     `sitekey` viene del atributo `data-sitekey` del widget reCaptcha
     en la página, o del query param de la iframe `?k=SITEKEY`.
     `page_url` es la URL exacta donde está embebido el captcha.
+    `invisible=True` para reCaptcha v2 invisible (size=invisible) — sin
+    este flag, 2Captcha devuelve un token de la variante visible que
+    Google rechaza al verificar (siteverify) en el sitio.
 
     El polling máximo es 120s. Si tarda más asumimos que algo falló y
     devolvemos None — el llamante decide qué hacer (típicamente caer
@@ -70,7 +75,9 @@ async def solve_recaptcha_v2(sitekey: str, page_url: str) -> str | None:
 
     try:
         async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT_SEC) as client:
-            task_id = await _submit_task(client, api_key, sitekey, page_url)
+            task_id = await _submit_task(
+                client, api_key, sitekey, page_url, invisible=invisible
+            )
             if not task_id:
                 return None
             return await _poll_result(client, api_key, task_id)
@@ -80,19 +87,30 @@ async def solve_recaptcha_v2(sitekey: str, page_url: str) -> str | None:
 
 
 async def _submit_task(
-    client: httpx.AsyncClient, api_key: str, sitekey: str, page_url: str
+    client: httpx.AsyncClient,
+    api_key: str,
+    sitekey: str,
+    page_url: str,
+    *,
+    invisible: bool = False,
 ) -> str | None:
-    """POST /in.php con method=userrecaptcha. Devuelve el task_id o None."""
-    response = await client.post(
-        _SUBMIT_URL,
-        data={
-            "key": api_key,
-            "method": "userrecaptcha",
-            "googlekey": sitekey,
-            "pageurl": page_url,
-            "json": "0",  # texto plano, más simple de parsear
-        },
-    )
+    """POST /in.php con method=userrecaptcha. Devuelve el task_id o None.
+
+    Si `invisible=True`, agrega el flag `invisible=1` que 2Captcha usa
+    para distinguir v2 visible de v2 invisible. Es CRÍTICO para sitios
+    como REPUVE — sin el flag, el token resultante es rechazado.
+    """
+    payload = {
+        "key": api_key,
+        "method": "userrecaptcha",
+        "googlekey": sitekey,
+        "pageurl": page_url,
+        "json": "0",
+    }
+    if invisible:
+        payload["invisible"] = "1"
+
+    response = await client.post(_SUBMIT_URL, data=payload)
     response.raise_for_status()
     text = response.text.strip()
 

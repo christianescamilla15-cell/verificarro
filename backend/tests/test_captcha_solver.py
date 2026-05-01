@@ -133,6 +133,59 @@ async def test_polling_error_returns_none(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_invisible_flag_added_to_payload(monkeypatch) -> None:
+    """Verifica que `invisible=True` agrega `invisible=1` al POST /in.php."""
+    from app.config import get_settings
+
+    get_settings.cache_clear()
+    monkeypatch.setenv("CAPTCHA_SOLVER_API_KEY", "test-key")
+
+    captured = {}
+
+    async def _post(self, url, **kwargs):  # noqa: ARG001
+        captured["data"] = kwargs.get("data", {})
+        return _ok_response("OK|task-1")
+
+    async def _get(self, url, **kwargs):  # noqa: ARG001
+        return _ok_response("OK|TOKEN_FOR_INVISIBLE")
+
+    with patch.object(httpx.AsyncClient, "post", _post), \
+         patch.object(httpx.AsyncClient, "get", _get):
+        out = await solve_recaptcha_v2(
+            "SITEKEY", "https://example.com", invisible=True
+        )
+
+    assert out == "TOKEN_FOR_INVISIBLE"
+    assert captured["data"].get("invisible") == "1"
+    get_settings.cache_clear()
+
+
+@pytest.mark.asyncio
+async def test_visible_flag_omits_invisible_param(monkeypatch) -> None:
+    """Sin `invisible=True`, no se agrega el flag."""
+    from app.config import get_settings
+
+    get_settings.cache_clear()
+    monkeypatch.setenv("CAPTCHA_SOLVER_API_KEY", "test-key")
+
+    captured = {}
+
+    async def _post(self, url, **kwargs):  # noqa: ARG001
+        captured["data"] = kwargs.get("data", {})
+        return _ok_response("OK|task-1")
+
+    async def _get(self, url, **kwargs):  # noqa: ARG001
+        return _ok_response("OK|TOKEN_VISIBLE")
+
+    with patch.object(httpx.AsyncClient, "post", _post), \
+         patch.object(httpx.AsyncClient, "get", _get):
+        await solve_recaptcha_v2("SITEKEY", "https://example.com")
+
+    assert "invisible" not in captured["data"]
+    get_settings.cache_clear()
+
+
+@pytest.mark.asyncio
 async def test_network_error_returns_none(monkeypatch) -> None:
     from app.config import get_settings
 

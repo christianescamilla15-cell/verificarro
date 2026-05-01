@@ -229,77 +229,211 @@ async def _click_submit(page: "Page", _input_selector: str) -> None:
 async def _maybe_solve_recaptcha(page: "Page") -> bool:
     """Si la página tiene un widget reCaptcha v2, intenta resolverlo via 2Captcha.
 
-    Devuelve True si se resolvió y el token quedó inyectado; False si
-    no había recaptcha, no había API key, o falló el solve.
+    Devuelve True si se resolvió Y el token se inyectó/registró bien.
+    False si no había recaptcha, no había API key, o falló el solve/inject.
 
     Flow:
-      1. Busca elemento `[data-sitekey]` o iframe `?k=SITEKEY` para
-         extraer el sitekey de Google.
+      1. Busca elemento `[data-sitekey]` o iframe `?k=SITEKEY` → sitekey.
       2. Llama a `solve_recaptcha_v2(sitekey, page_url)`.
-      3. Si devuelve token, lo inyecta en `g-recaptcha-response`
-         (el textarea hidden donde Google verifica la respuesta).
+      3. Inyecta el token mediante TRES estrategias en cascada (cualquiera
+         que funcione es suficiente):
+            a. Textarea `g-recaptcha-response` (lectura básica).
+            b. Callback JS registrado en `data-callback` o
+               `data-callback-ready` del widget.
+            c. Pattern `___grecaptcha_cfg.clients[N].callback(token)` —
+               manipulación interna del estado de Google.
+      4. Wait 1s para que la JS de Google procese el cambio antes del submit.
     """
-    sitekey = await _extract_recaptcha_sitekey(page)
-    if not sitekey:
+    import logging
+    log = logging.getLogger(__name__)
+
+    detection = await _extract_recaptcha_sitekey(page)
+    if not detection:
+        log.debug("No reCaptcha widget detectado en la página")
         return False
+    sitekey, invisible = detection
+    log.warning(
+        "reCaptcha detectado: sitekey=%s... invisible=%s",
+        sitekey[:20], invisible,
+    )
 
     page_url = page.url
     try:
-        token = await solve_recaptcha_v2(sitekey, page_url)
-    except Exception as exc:  # noqa: BLE001
-        # captcha_solver.solve_recaptcha_v2 ya hace logging interno;
-        # cubrimos cualquier excepción inesperada.
-        import logging
-        logging.getLogger(__name__).warning(
-            "2Captcha excepción inesperada: %s", exc
+        token = await solve_recaptcha_v2(
+            sitekey, page_url, invisible=invisible
         )
+    except Exception as exc:  # noqa: BLE001
+        log.warning("2Captcha excepción inesperada: %s", exc)
         return False
 
     if not token:
+        log.warning("2Captcha no devolvió token")
         return False
+    log.warning("2Captcha resolvió el captcha (token len=%d)", len(token))
 
-    # Inyecta el token en el textarea hidden que Google usa.
+    # Estrategia combinada de injection.
+    # Para invisible reCaptcha en SPAs (REPUVE/Angular), no basta con poner
+    # el token en el textarea: cuando el usuario hace click en "Buscar", el
+    # framework re-llama `grecaptcha.execute()` que sobreescribe el token y
+    # re-evalúa al usuario. En headless eso da score bajo → reject.
+    #
+    # Solución: además de inyectar, MONKEY-PATCH `grecaptcha.getResponse` y
+    # `grecaptcha.execute` para que devuelvan nuestro token ya resuelto y
+    # eviten el re-trigger.
     try:
-        await page.evaluate(
+        injection_log = await page.evaluate(
             """(token) => {
-                let el = document.getElementById('g-recaptcha-response');
-                if (!el) {
-                    // Algunos widgets renderizan el textarea con id distinto;
-                    // creamos uno si hace falta.
-                    el = document.createElement('textarea');
+                const log = [];
+
+                // (1) Textarea g-recaptcha-response (lectura clásica)
+                const textareas = document.querySelectorAll(
+                    'textarea[name="g-recaptcha-response"], #g-recaptcha-response'
+                );
+                if (textareas.length === 0) {
+                    const el = document.createElement('textarea');
                     el.id = 'g-recaptcha-response';
                     el.name = 'g-recaptcha-response';
                     el.style.display = 'none';
                     document.body.appendChild(el);
+                    el.value = token;
+                    el.innerHTML = token;
+                    log.push('textarea_created');
+                } else {
+                    textareas.forEach(el => {
+                        el.value = token;
+                        el.innerHTML = token;
+                        el.dispatchEvent(new Event('input', { bubbles: true }));
+                        el.dispatchEvent(new Event('change', { bubbles: true }));
+                    });
+                    log.push('textarea_set:' + textareas.length);
                 }
-                el.value = token;
-                el.innerHTML = token;
+
+                // (2) Monkey-patch grecaptcha.getResponse — siempre devuelve
+                // nuestro token. Cubre el caso donde el SPA llama
+                // getResponse() en su submit handler en vez de leer el textarea.
+                if (window.grecaptcha) {
+                    try {
+                        window.grecaptcha.getResponse = function() { return token; };
+                        log.push('getResponse_patched');
+                    } catch (e) {
+                        log.push('getResponse_patch_err:' + e.message);
+                    }
+
+                    // (3) Monkey-patch grecaptcha.execute — para invisible v2,
+                    // el SPA llama execute() para disparar la evaluación. Si
+                    // dejamos pasar la llamada real, Google detecta automation
+                    // y devuelve un token de baja confianza. Lo neutralizamos:
+                    // execute() ahora dispara directamente el callback con
+                    // nuestro token y devuelve resolved promise.
+                    try {
+                        const origExecute = window.grecaptcha.execute;
+                        window.grecaptcha.execute = function(...args) {
+                            // Buscar y disparar el callback registrado.
+                            try {
+                                if (window.___grecaptcha_cfg && window.___grecaptcha_cfg.clients) {
+                                    const clients = window.___grecaptcha_cfg.clients;
+                                    for (const cid of Object.keys(clients)) {
+                                        const search = (obj, depth) => {
+                                            if (!obj || depth > 4) return null;
+                                            for (const k of Object.keys(obj)) {
+                                                if (k === 'callback' && typeof obj[k] === 'function') {
+                                                    return obj[k];
+                                                }
+                                                if (typeof obj[k] === 'object' && obj[k] !== null) {
+                                                    const f = search(obj[k], depth + 1);
+                                                    if (f) return f;
+                                                }
+                                            }
+                                            return null;
+                                        };
+                                        const cb = search(clients[cid], 0);
+                                        if (cb) cb(token);
+                                    }
+                                }
+                            } catch (e) {}
+                            return Promise.resolve(token);
+                        };
+                        log.push('execute_patched');
+                    } catch (e) {
+                        log.push('execute_patch_err:' + e.message);
+                    }
+                } else {
+                    log.push('no_grecaptcha_api');
+                }
+
+                // (4) data-callback en widgets (caso visible v2, fallback)
+                const widgets = document.querySelectorAll('[data-sitekey]');
+                widgets.forEach(w => {
+                    const cb = w.getAttribute('data-callback');
+                    if (cb && typeof window[cb] === 'function') {
+                        try { window[cb](token); log.push('data-callback:' + cb); }
+                        catch (e) { log.push('data-callback-err:' + e.message); }
+                    }
+                });
+
+                // (5) Disparar también el callback registrado en cfg
+                try {
+                    if (window.___grecaptcha_cfg && window.___grecaptcha_cfg.clients) {
+                        const clients = window.___grecaptcha_cfg.clients;
+                        for (const cid of Object.keys(clients)) {
+                            const search = (obj, depth) => {
+                                if (!obj || depth > 4) return null;
+                                for (const k of Object.keys(obj)) {
+                                    if (k === 'callback' && typeof obj[k] === 'function') {
+                                        return obj[k];
+                                    }
+                                    if (typeof obj[k] === 'object' && obj[k] !== null) {
+                                        const f = search(obj[k], depth + 1);
+                                        if (f) return f;
+                                    }
+                                }
+                                return null;
+                            };
+                            const cb = search(clients[cid], 0);
+                            if (cb) {
+                                try { cb(token); log.push('cfg-callback:' + cid); }
+                                catch (e) { log.push('cfg-cb-err:' + e.message); }
+                            }
+                        }
+                    }
+                } catch (e) {
+                    log.push('cfg-err:' + e.message);
+                }
+
+                return log.join('|');
             }""",
             token,
         )
+        log.warning("reCaptcha injection: %s", injection_log)
     except Exception as exc:  # noqa: BLE001
-        import logging
-        logging.getLogger(__name__).warning(
-            "Failed injecting reCaptcha token: %s", exc
-        )
+        log.warning("Failed injecting reCaptcha token: %s", exc)
         return False
 
+    # Da tiempo a que la JS de Google procese el callback antes del submit
+    await page.wait_for_timeout(1500)
     return True
 
 
-async def _extract_recaptcha_sitekey(page: "Page") -> str | None:
-    """Busca el sitekey de Google en el DOM. Prioridad: data-sitekey > iframe?k=."""
-    # 1. Atributo data-sitekey (renderizado vía JS de Google)
+async def _extract_recaptcha_sitekey(page: "Page") -> tuple[str, bool] | None:
+    """Busca el sitekey de Google en el DOM. Prioridad: data-sitekey > iframe?k=.
+
+    Devuelve `(sitekey, invisible)` o None si no encuentra widget.
+    `invisible=True` cuando el widget es reCaptcha v2 invisible
+    (REPUVE usa esta variante: el iframe trae `&size=invisible`).
+    """
+    # 1. Atributo data-sitekey en algún elemento (data-size determina si es invisible)
     try:
         el = page.locator("[data-sitekey]").first
         if await el.count() > 0:
             value = await el.get_attribute("data-sitekey")
             if value:
-                return value.strip()
+                size = await el.get_attribute("data-size")
+                invisible = (size or "").lower() == "invisible"
+                return (value.strip(), invisible)
     except Exception:  # noqa: BLE001
         pass
 
-    # 2. Iframe del widget: src tiene `?k=SITEKEY` o `&k=SITEKEY`
+    # 2. Iframe del widget: src tiene `?k=SITEKEY` y posiblemente `&size=invisible`
     try:
         iframe = page.locator("iframe[src*='recaptcha']").first
         if await iframe.count() > 0:
@@ -307,7 +441,8 @@ async def _extract_recaptcha_sitekey(page: "Page") -> str | None:
             if src:
                 m = re.search(r"[?&]k=([A-Za-z0-9_\-]+)", src)
                 if m:
-                    return m.group(1)
+                    invisible = "size=invisible" in src
+                    return (m.group(1), invisible)
     except Exception:  # noqa: BLE001
         pass
 
