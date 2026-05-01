@@ -49,23 +49,88 @@ export default function PreviewReport() {
     ? '✅ Sin reportes de robo'
     : repuve.error || 'No consultado'
 
+  // ¿REPUVE auto-query falló? Cuando falla, hacemos hero los links manuales
+  // porque son la ÚNICA forma confiable de verificar REPUVE en este momento.
+  const repuveAutoFailed = !repuve.queried && repuve.raw_status === 'captcha_required'
+
+  // Filtrar y priorizar links: primero los aplicables a la ubicación, después los demás
+  const sortedLinks = (data.consultation_links || [])
+    .slice()
+    .sort((a, b) => Number(b.applicable) - Number(a.applicable))
+  const repuveLink = sortedLinks.find((l) => l.name?.includes('REPUVE'))
+  const otherLinks = sortedLinks.filter((l) => !l.name?.includes('REPUVE'))
+
   return (
     <main className="report-view preview-view">
       <ScoreChip score={data.score} risk={data.risk_level} />
       <p className="report-summary">{data.summary}</p>
 
-      {data.consultation_links && data.consultation_links.length > 0 && (
+      {/* CTA HERO: cuando captcha falló, los links manuales son la salida.
+          REPUVE oficial NO permite pre-llenar placa via query (Angular SPA),
+          por eso le decimos al usuario que copie su placa y resuelva captcha
+          humano — proceso de ~30s, 100% confiable. */}
+      {repuveAutoFailed && repuveLink && (
+        <section className="report-section gov-hero">
+          <div className="gov-hero-banner">
+            <AlertCircle size={22} strokeWidth={2.4} />
+            <div>
+              <strong>REPUVE bloquea consultas automáticas</strong>
+              <p>
+                Es un sistema gubernamental con anti-bot estricto. Lo bueno: en
+                el portal oficial tú resuelves el captcha en 5 segundos
+                (humano) y obtienes el resultado real, sin costo.
+              </p>
+            </div>
+          </div>
+          <div className="gov-hero-instructions">
+            <ol>
+              <li>
+                Click <strong>"Abrir REPUVE oficial"</strong> abajo (abre nueva pestaña)
+              </li>
+              <li>
+                Pega tu {data.plate ? 'placa' : 'NIV'}:{' '}
+                <code className="gov-hero-plate">{data.plate || data.vin}</code>{' '}
+                <button
+                  type="button"
+                  className="gov-hero-copy"
+                  onClick={() => navigator.clipboard?.writeText(data.plate || data.vin || '')}
+                >
+                  copiar
+                </button>
+              </li>
+              <li>Resuelve el captcha (es solo 1 click humano) y "Buscar"</li>
+              <li>El resultado oficial aparece en pantalla</li>
+            </ol>
+          </div>
+          <a
+            href={repuveLink.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="primary big gov-hero-cta"
+          >
+            <ExternalLink size={20} strokeWidth={2.4} />
+            Abrir REPUVE oficial
+          </a>
+        </section>
+      )}
+
+      {/* Sección de otros links gob.mx (tenencia, multas, verificación).
+          Si REPUVE no falló, mostramos esto + REPUVE en grid normal. */}
+      {sortedLinks.length > 0 && (
         <section className="report-section gov-links">
           <h2>
             <ExternalLink size={20} strokeWidth={2.2} />
-            Verifica tú mismo en gob.mx (gratis)
+            {repuveAutoFailed
+              ? 'Otras consultas oficiales gob.mx (gratis)'
+              : 'Verifica tú mismo en gob.mx (gratis)'}
           </h2>
           <p className="muted">
-            Portales oficiales pre-llenados con tu placa. Los marcados con
-            ✓ aplican a tu auto según la ubicación que detectamos.
+            {repuveAutoFailed
+              ? 'Más portales que aplican según el estado del auto. Adicional al REPUVE de arriba.'
+              : 'Portales oficiales pre-llenados con tu placa. Los marcados con ✓ aplican a tu auto.'}
           </p>
           <div className="gov-link-grid">
-            {data.consultation_links.map((link, i) => (
+            {(repuveAutoFailed ? otherLinks : sortedLinks).map((link, i) => (
               <a
                 key={i}
                 href={link.url}

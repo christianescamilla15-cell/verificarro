@@ -968,6 +968,100 @@ button.icon-button:hover { color: var(--text-primary); background: var(--bg-card
 
 /* ===== Gov.mx consultation links ===== */
 .gov-links { padding-top: var(--space-5); }
+
+/* Hero CTA cuando captcha REPUVE auto falló — el link manual es la salida principal */
+.gov-hero {
+  background: linear-gradient(180deg, var(--warning-soft), transparent);
+  border: 1px solid var(--warning-border);
+  border-radius: var(--radius-xl);
+  padding: var(--space-6);
+  margin: var(--space-6) 0;
+  text-align: center;
+}
+.gov-hero-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  text-align: left;
+  margin-bottom: var(--space-5);
+  padding: var(--space-4);
+  background: var(--bg-elevated);
+  border-radius: var(--radius-md);
+}
+.gov-hero-banner svg {
+  color: var(--warning-text);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.gov-hero-banner strong {
+  display: block;
+  color: var(--warning-text);
+  margin-bottom: var(--space-1);
+  font-size: var(--fs-md);
+}
+.gov-hero-banner p {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-normal);
+}
+.gov-hero-cta {
+  width: auto;
+  min-width: 320px;
+  display: inline-flex;
+  text-decoration: none;
+  margin-top: var(--space-4);
+}
+.gov-hero code {
+  background: var(--bg-card);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  color: var(--accent-text);
+}
+.gov-hero-instructions {
+  text-align: left;
+  background: var(--bg-elevated);
+  border-radius: var(--radius-md);
+  padding: var(--space-4) var(--space-5);
+  margin-bottom: var(--space-4);
+}
+.gov-hero-instructions ol {
+  margin: 0;
+  padding-left: var(--space-5);
+  color: var(--text-primary);
+}
+.gov-hero-instructions li {
+  margin-bottom: var(--space-2);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-normal);
+}
+.gov-hero-plate {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-weight: var(--fw-bold);
+  font-size: 0.95em;
+  letter-spacing: 0.06em;
+}
+.gov-hero-copy {
+  background: transparent;
+  border: 1px solid var(--border-default);
+  color: var(--accent-text);
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-xs);
+  cursor: pointer;
+  margin-left: var(--space-1);
+  font-family: inherit;
+}
+.gov-hero-copy:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
 .gov-link-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
