@@ -137,6 +137,21 @@ class DescriptionFinding(BaseModel):
     excerpt: str
 
 
+class ExifFindingModel(BaseModel):
+    """Hallazgo de la EXIF de una foto. Espejo Pydantic del dataclass
+    `ExifFinding` de `app.analyzers.exif_analyzer`."""
+
+    photo_index: int
+    flag: Literal[
+        "edited_software",
+        "duplicate_timestamp",
+        "old_photo",
+        "no_exif_anywhere",
+    ]
+    severity: Literal["low", "medium", "high"]
+    note: str
+
+
 class SellerFinding(BaseModel):
     flag: Literal[
         "new_account",
@@ -215,6 +230,7 @@ class Report(BaseModel):
     repuve: RepuveResult
     price: PriceEstimate
     photo_findings: list[PhotoFinding] = Field(default_factory=list)
+    exif_findings: list[ExifFindingModel] = Field(default_factory=list)
     description_findings: list[DescriptionFinding] = Field(default_factory=list)
     seller_findings: list[SellerFinding] = Field(default_factory=list)
     vin_check: VinCheck | None = None

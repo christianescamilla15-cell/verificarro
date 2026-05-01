@@ -23,6 +23,7 @@ from app.models.report import (
 )
 from app.analyzers import (
     description_analyzer,
+    exif_analyzer,
     photo_analyzer,
     price_estimator,
     scoring,
@@ -30,6 +31,7 @@ from app.analyzers import (
     vin_check as vin_check_module,
 )
 from app.scrapers import mercadolibre, ml_search, repuve
+from app.services.photo_fetcher import fetch_photos
 
 logger = logging.getLogger(__name__)
 
@@ -154,13 +156,12 @@ async def _run_repuve(
 
 async def run_pipeline(req: AnalyzeRequest) -> Report:
     listing = await _resolve_listing(req)
-    # REPUVE, precio y fotos hacen I/O — paralelizamos.
-    # Description y seller son CPU-bound puras, las corremos sincrónicas
-    # después porque tardan microsegundos.
-    repuve, price, photo_findings = await asyncio.gather(
+    # REPUVE, precio, fotos (Claude vision) y EXIF hacen I/O — paralelizamos.
+    repuve, price, photo_findings, exif_findings = await asyncio.gather(
         _resolve_repuve(req),
         _resolve_price(listing),
         _resolve_photos(listing),
+        _resolve_exif(listing),
     )
     description_findings = description_analyzer.analyze(listing.description)
     seller_findings = seller_analyzer.analyze(listing)
@@ -175,6 +176,7 @@ async def run_pipeline(req: AnalyzeRequest) -> Report:
         repuve=repuve,
         price=price,
         photo_findings=photo_findings,
+        exif_findings=exif_findings,
         description_findings=description_findings,
         seller_findings=seller_findings,
         vin_check=vin_check,
@@ -340,4 +342,35 @@ async def _resolve_photos(listing: ListingData):
         return await photo_analyzer.analyze_photos(listing.photo_urls)
     except Exception:  # noqa: BLE001
         logger.exception("Photo analyzer falló")
+        return []
+
+
+async def _resolve_exif(listing: ListingData):
+    """Descarga las fotos y extrae EXIF para detectar edición/duplicados.
+
+    En la práctica las fotos de ML Motors vienen sin EXIF (el CDN la
+    quita), entonces esto rinde más en upload manual. Si todas las
+    descargas fallan, regresa lista vacía sin tumbar el pipeline.
+    """
+    from app.models.report import ExifFindingModel
+
+    if not listing.photo_urls:
+        return []
+    try:
+        bytes_list = await fetch_photos(listing.photo_urls[:6])
+        metadatas = [exif_analyzer.extract_metadata(b) for b in bytes_list]
+        findings = exif_analyzer.analyze_batch(
+            metadatas, listing_year=listing.year
+        )
+        return [
+            ExifFindingModel(
+                photo_index=f.photo_index,
+                flag=f.flag,
+                severity=f.severity,
+                note=f.note,
+            )
+            for f in findings
+        ]
+    except Exception:  # noqa: BLE001
+        logger.exception("EXIF analyzer falló")
         return []
