@@ -82,6 +82,14 @@ async def run_preview_pipeline(
         questions_for_seller=[],
     )
     report = scoring.populate(report)
+    # Sin signal de REPUVE no podemos llamar verde a algo. El scoring
+    # estándar daría 100/green (porque no hay penalty), pero eso induce
+    # falsa confianza. Si REPUVE no respondió y no hay otra señal
+    # negativa, capamos el preview a 50/yellow para conveyar "no
+    # sabemos, hay que verificar manualmente".
+    if not repuve_result.queried and report.risk_level == RiskLevel.GREEN:
+        report.score = 50
+        report.risk_level = RiskLevel.YELLOW
     report.summary = _build_preview_summary(report.score, report.risk_level, repuve_result)
     return report
 

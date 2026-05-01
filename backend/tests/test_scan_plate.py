@@ -17,7 +17,7 @@ from app.db.base import Base
 from app.db.models import Payment, PaymentStatus, ReportRecord, ReportStatus
 from app.db.session import get_async_session
 from app.main import app
-from app.models.report import RepuveResult, RiskLevel
+from app.models.report import RepuveResult
 from app.services.mercadopago import CheckoutPreference
 from app.services.plate_ocr import PlateScanResult
 
@@ -154,7 +154,12 @@ def test_scan_plate_stolen_returns_red(client) -> None:
     assert "ROBADO" in body["summary"]
 
 
-def test_scan_plate_captcha_returns_preview_with_warning(client) -> None:
+def test_scan_plate_captcha_returns_yellow_capped_preview(client) -> None:
+    """Sin signal de REPUVE no podemos llamar verde a algo.
+
+    El scoring estándar daría 100/green (sin penalty); el preview
+    pipeline lo capa a 50/yellow para no inducir falsa confianza.
+    """
     with patch(
         "app.services.pipeline._run_repuve",
         return_value=_captcha_repuve(plate="ABC123D"),
@@ -162,8 +167,9 @@ def test_scan_plate_captcha_returns_preview_with_warning(client) -> None:
         res = client.post("/api/scan/plate", json={"manual_plate": "ABC123D"})
     assert res.status_code == 200
     body = res.json()
+    assert body["risk_level"] == "yellow"
+    assert body["score"] == 50
     assert "no se pudo consultar" in body["summary"]
-    # El score sigue siendo computable (repuve.queried=False → 0 penalty)
     assert body["report_id"]
 
 
