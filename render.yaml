@@ -25,11 +25,13 @@ services:
     # Build: instala deps Python + Playwright (Chromium ~200MB) + corre migraciones.
     # Si el build falla por OOM en Render Starter, considera diferir
     # `playwright install` al primer request o subir a Standard ($25/mo).
+    # `playwright install-deps` requiere sudo (no disponible en Render);
+    # las deps Linux base ya están en el contenedor Render Python, así
+    # que solo descargamos Chromium con `playwright install chromium`.
     buildCommand: |
       pip install --upgrade pip
       pip install -r requirements.txt
       playwright install chromium
-      playwright install-deps chromium
       alembic upgrade head
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
