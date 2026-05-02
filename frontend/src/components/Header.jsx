@@ -25,6 +25,7 @@ export default function Header() {
         <Link to="/precios" className="header-link">Precios</Link>
         {!loading && user && (
           <>
+            <Link to="/dashboard" className="header-link">Tablero</Link>
             <span className="header-email">{user.email}</span>
             <button onClick={logout} className="link-button">Salir</button>
           </>

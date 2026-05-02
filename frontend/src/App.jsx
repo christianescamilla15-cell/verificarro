@@ -6,6 +6,7 @@ import CheckoutFailure from './pages/CheckoutFailure.jsx'
 import CheckoutPending from './pages/CheckoutPending.jsx'
 import CheckoutSuccess from './pages/CheckoutSuccess.jsx'
 import CheckoutTier from './pages/CheckoutTier.jsx'
+import Dashboard from './pages/Dashboard.jsx'
 import Landing from './pages/Landing.jsx'
 import Login from './pages/Login.jsx'
 import Pricing from './pages/Pricing.jsx'
@@ -18,6 +19,7 @@ export default function App() {
       <Routes>
         <Route path="/" element={<Landing />} />
         <Route path="/precios" element={<Pricing />} />
+        <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/preview/:reportId" element={<PreviewReport />} />
         <Route path="/checkout-tier" element={<CheckoutTier />} />
         <Route path="/login" element={<Login />} />

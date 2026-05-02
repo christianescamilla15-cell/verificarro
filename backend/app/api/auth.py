@@ -8,14 +8,14 @@ asocian a su user_id para historial.
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from pydantic import BaseModel, EmailStr
-from sqlalchemy import select
+from sqlalchemy import case, desc, func, select
 
-from app.db.models import User
+from app.db.models import Payment, PaymentStatus, ReportRecord, User
 from app.db.session import SessionDep
 from app.services.auth import (
     build_magic_link_url,
@@ -25,6 +25,14 @@ from app.services.auth import (
     verify_magic_link,
 )
 from app.services.email import send_magic_link_email
+
+# Reportes incluidos por mes en cada tier suscripcional. Hard-coded (no
+# config) porque el cap es identidad del tier, no precio. Si en algún
+# momento se vuelve tunable se promueve a settings.
+_TIER_MONTHLY_CAP: dict[str, int] = {
+    "search": 50,
+    "dealer": 500,
+}
 
 logger = logging.getLogger(__name__)
 
@@ -196,3 +204,157 @@ async def logout(
     blacklist con TTL == JWT exp para invalidación instant.)"""
     logger.info("User %s logged out", user.email)
     return {"message": "Sesión cerrada. Descarta el token del cliente."}
+
+
+# ---------------------------------------------------------------------------
+# /api/auth/me/dashboard
+
+
+class DashboardSubscription(BaseModel):
+    tier: str  # "search" | "dealer"
+    active: bool
+    expires_at: datetime | None
+    monthly_used: int  # reportes generados en los últimos 30 días
+    monthly_cap: int
+
+
+class DashboardSummary(BaseModel):
+    total_reports: int
+    reports_this_month: int
+    avg_score: float | None
+    high_risk_count: int
+    medium_risk_count: int
+    low_risk_count: int
+    spent_mxn: float
+
+
+class DashboardReport(BaseModel):
+    id: str
+    created_at: datetime
+    make: str | None
+    model: str | None
+    year: int | None
+    plate: str | None
+    vin: str | None
+    score: int
+    risk_level: str
+    status: str  # "preview" | "unlocked"
+    source_url: str | None
+
+
+class DashboardResponse(BaseModel):
+    summary: DashboardSummary
+    subscription: DashboardSubscription | None
+    reports: list[DashboardReport]
+
+
+@router.get("/auth/me/dashboard", response_model=DashboardResponse)
+async def me_dashboard(
+    user: Annotated[User, Depends(get_current_user)],
+    session: SessionDep,
+    limit: int = 20,
+) -> DashboardResponse:
+    """Tablero del usuario: stats agregadas + suscripción activa + últimos
+    reportes. Una sola llamada para que el dashboard frontend no haga
+    fan-out de requests."""
+    limit = max(1, min(limit, 100))
+    now = datetime.now(UTC)
+    month_ago = now - timedelta(days=30)
+
+    # ---------- Reports (últimos N + agregados) -----------------------
+    reports_q = await session.execute(
+        select(ReportRecord)
+        .where(ReportRecord.user_id == user.id)
+        .order_by(desc(ReportRecord.created_at))
+        .limit(limit)
+    )
+    recent_reports = list(reports_q.scalars().all())
+
+    # case((cond, 1), else_=0) genera CASE WHEN ... THEN 1 ELSE 0, que
+    # SQLite y Postgres entienden igual. Evita el cast booleano→int que
+    # diverge entre dialectos.
+    agg_q = await session.execute(
+        select(
+            func.count(ReportRecord.id),
+            func.avg(ReportRecord.score),
+            func.sum(case((ReportRecord.risk_level == "high", 1), else_=0)),
+            func.sum(case((ReportRecord.risk_level == "medium", 1), else_=0)),
+            func.sum(case((ReportRecord.risk_level == "low", 1), else_=0)),
+        ).where(ReportRecord.user_id == user.id)
+    )
+    total, avg_score, high_n, mid_n, low_n = agg_q.one()
+
+    month_q = await session.execute(
+        select(func.count(ReportRecord.id)).where(
+            ReportRecord.user_id == user.id,
+            ReportRecord.created_at >= month_ago,
+        )
+    )
+    reports_this_month = int(month_q.scalar() or 0)
+
+    # ---------- Spend (suma de Payment.amount_mxn paid) ----------------
+    spent_q = await session.execute(
+        select(func.coalesce(func.sum(Payment.amount_mxn), 0.0)).where(
+            Payment.user_id == user.id,
+            Payment.status == PaymentStatus.PAID,
+        )
+    )
+    spent_mxn = float(spent_q.scalar() or 0.0)
+
+    # ---------- Subscription (último Payment paid con tier sub) --------
+    sub_q = await session.execute(
+        select(Payment)
+        .where(
+            Payment.user_id == user.id,
+            Payment.status == PaymentStatus.PAID,
+            Payment.tier.in_(_TIER_MONTHLY_CAP.keys()),
+        )
+        .order_by(desc(Payment.paid_at))
+        .limit(1)
+    )
+    last_sub = sub_q.scalar_one_or_none()
+
+    subscription: DashboardSubscription | None = None
+    if last_sub and last_sub.paid_at:
+        paid_at = last_sub.paid_at
+        if paid_at.tzinfo is None:
+            paid_at = paid_at.replace(tzinfo=UTC)
+        expires_at = paid_at + timedelta(days=30)
+        subscription = DashboardSubscription(
+            tier=last_sub.tier,
+            active=expires_at > now,
+            expires_at=expires_at,
+            monthly_used=reports_this_month,
+            monthly_cap=_TIER_MONTHLY_CAP[last_sub.tier],
+        )
+
+    return DashboardResponse(
+        summary=DashboardSummary(
+            total_reports=int(total or 0),
+            reports_this_month=reports_this_month,
+            avg_score=float(avg_score) if avg_score is not None else None,
+            high_risk_count=int(high_n or 0),
+            medium_risk_count=int(mid_n or 0),
+            low_risk_count=int(low_n or 0),
+            spent_mxn=spent_mxn,
+        ),
+        subscription=subscription,
+        reports=[
+            DashboardReport(
+                id=r.id,
+                created_at=r.created_at,
+                make=r.make,
+                model=r.model,
+                year=r.year,
+                plate=r.plate,
+                vin=r.vin,
+                score=r.score,
+                risk_level=r.risk_level,
+                status=r.status.value,
+                source_url=r.source_url,
+            )
+            for r in recent_reports
+        ],
+    )
+
+
