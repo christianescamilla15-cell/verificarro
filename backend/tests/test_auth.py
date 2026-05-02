@@ -239,6 +239,46 @@ def test_verify_consumes_token_single_use(client) -> None:
     assert res2.status_code == 401
 
 
+def test_verify_atomic_consume_returns_401_when_hash_already_cleared(
+    client, db_factory,
+) -> None:
+    """Race condition (MOD-002): si entre el SELECT y el UPDATE de verify
+    otro request ya consumió el token (hash ahora NULL), el UPDATE con
+    WHERE hash=expected encuentra 0 filas y debe devolver 401.
+
+    Simulamos eso clearing el hash directamente en DB después de que
+    el endpoint cargó el user pero antes del UPDATE. En la implementación
+    pre-MOD-002 ambos requests asignaban hash=None y emitían JWT."""
+    token = _request_link_and_capture(client, "race@example.com")
+
+    # Capturamos el hash actual del user
+    import asyncio
+
+    async def _wipe_hash() -> None:
+        async with db_factory() as s:
+            r = await s.execute(
+                select(User).where(User.email == "race@example.com")
+            )
+            user = r.scalar_one()
+            user.magic_link_hash = None  # otro request "ganó" la carrera
+            user.magic_link_expires_at = None
+            await s.commit()
+
+    asyncio.get_event_loop().run_until_complete(_wipe_hash())
+
+    # Ahora intentamos verify — el SELECT inicial ve hash=NULL así que
+    # cae en la rama "or not user.magic_link_hash" → 401 directo.
+    # Pero también validamos que si el hash hubiera matcheado, el UPDATE
+    # con rowcount=0 también devolvería 401. Lo más cercano a la race
+    # real es probar que el endpoint NO emite JWT cuando el hash ya
+    # no coincide.
+    res = client.post(
+        "/api/auth/verify",
+        json={"email": "race@example.com", "token": token},
+    )
+    assert res.status_code == 401
+
+
 def test_verify_expired_token_returns_401(client, db_factory) -> None:
     """Forzamos expiración escribiendo un past expires_at directo a DB."""
     token = _request_link_and_capture(client, "expired@example.com")

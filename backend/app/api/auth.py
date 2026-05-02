@@ -13,7 +13,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from pydantic import BaseModel, EmailStr
-from sqlalchemy import case, desc, func, select
+from sqlalchemy import case, desc, func, select, update
 
 from app.db.models import Payment, PaymentStatus, ReportRecord, User
 from app.db.session import SessionDep
@@ -150,7 +150,17 @@ async def request_link(
 
 @router.post("/auth/verify", response_model=VerifyResponse)
 async def verify(body: VerifyBody, session: SessionDep) -> VerifyResponse:
-    """Valida el magic link, marca último login y emite JWT de sesión."""
+    """Valida el magic link, marca último login y emite JWT de sesión.
+
+    ### Single-use atómico (MOD-002)
+
+    El consume del token es vía `UPDATE ... WHERE magic_link_hash=:hash`
+    con check de filas afectadas. Si dos requests llegan con el mismo
+    token válido, solo uno encuentra la fila con ese hash en la tabla
+    (la otra ve `NULL` ya seteado) y emite JWT; el otro recibe 401.
+    Sin esto había una race: ambos pasan el check `verify_magic_link`
+    y ambos setean `hash=None` → 2 JWTs emitidos.
+    """
     email = body.email.lower().strip()
     result = await session.execute(select(User).where(User.email == email))
     user = result.scalar_one_or_none()
@@ -167,10 +177,24 @@ async def verify(body: VerifyBody, session: SessionDep) -> VerifyResponse:
             detail="Link inválido o expirado. Pide uno nuevo.",
         )
 
-    # Magic link válido — invalidar (uso único) + actualizar last_login
-    user.magic_link_hash = None
-    user.magic_link_expires_at = None
-    user.last_login_at = datetime.now(UTC)
+    # Consume atómico. Si otro request ganó la carrera entre el SELECT
+    # de arriba y este UPDATE, magic_link_hash ya es NULL y rowcount=0.
+    now = datetime.now(UTC)
+    expected_hash = user.magic_link_hash
+    consume = await session.execute(
+        update(User)
+        .where(User.id == user.id, User.magic_link_hash == expected_hash)
+        .values(magic_link_hash=None, magic_link_expires_at=None, last_login_at=now)
+    )
+    if consume.rowcount != 1:
+        # Otro request ya consumió este token. Mismo error que token inválido.
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Link inválido o expirado. Pide uno nuevo.",
+        )
+
+    # Refrescamos el ORM para que el response tenga last_login_at actualizado.
+    await session.refresh(user)
 
     token = create_session_token(user.id)
     return VerifyResponse(
