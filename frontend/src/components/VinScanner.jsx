@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../lib/api.js'
+import { useModalA11y } from '../hooks/useModalA11y.js'
 import Spinner from './Spinner.jsx'
 
 /**
@@ -19,6 +20,9 @@ export default function VinScanner({ listing, repuve, onResult, onClose }) {
   const videoRef = useRef(null)
   const canvasRef = useRef(null)
   const streamRef = useRef(null)
+  const modalRef = useRef(null)
+  // MOD-028: ESC + focus trap + restore focus.
+  useModalA11y(modalRef, onClose)
   const [stage, setStage] = useState('camera')  // camera | preview | scanning | result | error
   const [error, setError] = useState(null)
   const [scanResult, setScanResult] = useState(null)  // de /vin/scan
@@ -125,10 +129,10 @@ export default function VinScanner({ listing, repuve, onResult, onClose }) {
   }
 
   return (
-    <div className="vin-scanner-overlay" role="dialog" aria-modal="true">
-      <div className="vin-scanner">
+    <div className="vin-scanner-overlay" role="dialog" aria-modal="true" aria-labelledby="vin-scanner-title">
+      <div className="vin-scanner" ref={modalRef}>
         <div className="vin-scanner-header">
-          <h2>Escanear VIN del auto</h2>
+          <h2 id="vin-scanner-title">Escanear VIN del auto</h2>
           <button onClick={onClose} className="close-btn" aria-label="Cerrar">×</button>
         </div>
 

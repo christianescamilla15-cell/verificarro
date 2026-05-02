@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { X, Lock, AlertTriangle, ShieldCheck } from 'lucide-react'
 import { api } from '../lib/api.js'
+import { useModalA11y } from '../hooks/useModalA11y.js'
 import WhatsAppButton from './WhatsAppButton.jsx'
 
 /**
@@ -18,6 +19,11 @@ export default function PaywallModal({ reportId, onClose }) {
   const [tier, setTier] = useState('basic')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  const modalRef = useRef(null)
+
+  // MOD-028: ESC cierra, focus trap intra-modal, restaura focus al
+  // elemento que abrió el modal cuando cierra.
+  useModalA11y(modalRef, onClose)
 
   async function handleUnlock(e) {
     e.preventDefault()
@@ -53,10 +59,10 @@ export default function PaywallModal({ reportId, onClose }) {
   }
 
   return (
-    <div className="vin-scanner-overlay" role="dialog" aria-modal="true">
-      <div className="vin-scanner paywall-modal">
+    <div className="vin-scanner-overlay" role="dialog" aria-modal="true" aria-labelledby="paywall-modal-title">
+      <div className="vin-scanner paywall-modal" ref={modalRef}>
         <div className="vin-scanner-header">
-          <h2>
+          <h2 id="paywall-modal-title">
             <Lock size={20} style={{ verticalAlign: '-3px', marginRight: 6, color: 'var(--accent-text)' }} />
             Desbloquear reporte completo
           </h2>

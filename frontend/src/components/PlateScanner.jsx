@@ -4,6 +4,7 @@ import {
   AlertTriangle, ArrowLeft, RefreshCcw, Send, FileText, CheckCircle2,
 } from 'lucide-react'
 import { api } from '../lib/api.js'
+import { useModalA11y } from '../hooks/useModalA11y.js'
 import Spinner from './Spinner.jsx'
 
 /**
@@ -26,6 +27,9 @@ export default function PlateScanner({ onResult, onClose }) {
   const fileInputRef = useRef(null)
   const streamRef = useRef(null)
   const autoCaptureCancelRef = useRef(false)
+  const modalRef = useRef(null)
+  // MOD-028: ESC + focus trap + restore focus.
+  useModalA11y(modalRef, onClose)
   const [stage, setStage] = useState('mode')
   // mode | camera | scanning | invoice_detected | manual | error
   const [error, setError] = useState(null)
@@ -233,11 +237,12 @@ export default function PlateScanner({ onResult, onClose }) {
       className="vin-scanner-overlay"
       role="dialog"
       aria-modal="true"
+      aria-labelledby="plate-scanner-title"
       onClick={handleOverlayClick}
     >
-      <div className="vin-scanner" onClick={(e) => e.stopPropagation()}>
+      <div className="vin-scanner" ref={modalRef} onClick={(e) => e.stopPropagation()}>
         <div className="vin-scanner-header">
-          <h2><ScanLine size={20} style={{ verticalAlign: '-3px', marginRight: 6, color: 'var(--accent-text)' }} />Escanear placa</h2>
+          <h2 id="plate-scanner-title"><ScanLine size={20} style={{ verticalAlign: '-3px', marginRight: 6, color: 'var(--accent-text)' }} />Escanear placa</h2>
           <button onClick={handleOverlayClick} className="close-btn" aria-label="Cerrar">
             <X size={22} />
           </button>

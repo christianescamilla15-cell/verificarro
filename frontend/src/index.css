@@ -42,6 +42,25 @@ button {
   cursor: pointer;
 }
 
+/* MOD-027: focus-visible global accessibility (WCAG 2.4.7).
+   `:focus-visible` solo aparece para teclado/AT, NO para clicks de mouse
+   (lo que evita el "ring de focus permanente" que rompe la estética).
+   Si un componente quiere disable focus ring por razón intencional
+   (rare), puede sobreescribir con `:focus-visible { outline: none; }`
+   con justificación. */
+:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* Reset el outline default de Chrome/Firefox cuando NO es focus-visible
+   (e.g. click con mouse) — sin esto algunos browsers muestran un ring
+   azul nativo encima de nuestro outline. */
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
 ::selection {
   background: var(--blue-7);
   color: var(--slate-12);
