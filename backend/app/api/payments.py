@@ -18,6 +18,8 @@ Flow completo:
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import logging
 import uuid
 from datetime import UTC, datetime
@@ -271,15 +273,34 @@ async def webhook(
     Consultamos el payment, validamos `external_reference` y
     actualizamos el status en nuestra DB.
 
-    Webhook validation con HMAC: si `MP_WEBHOOK_SECRET` está set, MP
-    incluye un header `x-signature` con HMAC-SHA256. Por simplicidad
-    en MVP, solo logueamos cuando falte; bloqueo strict en D9.5+ si
-    los webhooks empiezan a abusar.
+    ### HMAC validation
+
+    Si `MP_WEBHOOK_SECRET` está configurado, validamos `x-signature`
+    contra el manifest oficial de MP:
+
+        manifest = "id:<data.id>;request-id:<x-request-id>;ts:<ts>;"
+        expected = hmac_sha256(MP_WEBHOOK_SECRET, manifest)
+
+    Si la firma falla → `401 Unauthorized`. Sin esto, cualquiera con la
+    URL puede POSTear webhooks fake y disparar `unlock_report_for_payment`
+    para liberar reportes ajenos.
+
+    Backward-compat: si `MP_WEBHOOK_SECRET` está vacío (config dev/MVP),
+    NO validamos — solo loggeamos warning. Cutover a strict cuando se
+    setee el secret en Render.
     """
     payload = await request.json()
     topic = payload.get("type") or payload.get("topic")
     data = payload.get("data") or {}
     mp_payment_id = data.get("id") or payload.get("data.id")
+
+    # HMAC check ANTES de cualquier procesamiento. Si la firma es mala,
+    # ni siquiera consultamos a MP por el ID (evita amplification).
+    if not _verify_mp_signature(request, mp_payment_id):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Webhook signature inválida",
+        )
 
     if topic != "payment" or not mp_payment_id:
         # Otros topics (merchant_order, etc.) los ignoramos por ahora.
@@ -418,3 +439,71 @@ def _map_mp_status(mp_status: str) -> PaymentStatus:
     if mp_status in {"rejected", "cancelled"}:
         return PaymentStatus.FAILED
     return PaymentStatus.PENDING
+
+
+def _verify_mp_signature(request: Request, mp_payment_id: Any) -> bool:
+    """Valida `x-signature` HMAC-SHA256 contra el manifest oficial de MP.
+
+    Header format: `x-signature: ts=<ts>,v1=<hex_hmac>`
+    Manifest: `id:<data.id>;request-id:<x-request-id>;ts:<ts>;`
+        (los segmentos opcionales se omiten si su valor es vacío)
+
+    Si `MP_WEBHOOK_SECRET` está vacío, NO validamos (modo dev/MVP) y
+    devolvemos True con un warning. Cuando se setee el secret en Render
+    el modo cambia a strict automáticamente.
+    """
+    settings = get_settings()
+    secret = settings.mp_webhook_secret.strip()
+    if not secret:
+        logger.warning(
+            "MP_WEBHOOK_SECRET vacío — webhook signature NO validada. "
+            "Cualquiera con la URL puede mandar webhooks fake. "
+            "Configurar en Render para activar HMAC strict."
+        )
+        return True
+
+    sig_header = request.headers.get("x-signature", "")
+    if not sig_header:
+        logger.warning("Webhook MP sin x-signature header — rechazando")
+        return False
+
+    # Parse "ts=...,v1=..." en cualquier orden
+    parts: dict[str, str] = {}
+    for chunk in sig_header.split(","):
+        if "=" not in chunk:
+            continue
+        k, v = chunk.split("=", 1)
+        parts[k.strip()] = v.strip()
+    ts = parts.get("ts")
+    v1 = parts.get("v1")
+    if not ts or not v1:
+        logger.warning("Webhook MP signature malformada: %s", sig_header)
+        return False
+
+    request_id = request.headers.get("x-request-id", "")
+    payment_id = str(mp_payment_id) if mp_payment_id else ""
+
+    # MP omite segmentos opcionales con valor vacío del manifest. Solo
+    # incluimos los que tienen valor para que el HMAC matchee el de MP.
+    segments: list[str] = []
+    if payment_id:
+        segments.append(f"id:{payment_id};")
+    if request_id:
+        segments.append(f"request-id:{request_id};")
+    segments.append(f"ts:{ts};")
+    manifest = "".join(segments)
+
+    expected = hmac.new(
+        secret.encode("utf-8"),
+        manifest.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+    if not hmac.compare_digest(expected, v1):
+        logger.warning(
+            "Webhook MP HMAC mismatch — manifest=%s expected=%s got=%s",
+            manifest, expected[:8] + "...", v1[:8] + "...",
+        )
+        return False
+
+    return True

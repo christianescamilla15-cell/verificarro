@@ -238,6 +238,132 @@ def test_webhook_idempotent_duplicate_does_nothing(client, db_factory) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Webhook HMAC validation (MOD-001)
+#
+# Cuando MP_WEBHOOK_SECRET está configurado, el handler debe rechazar
+# 401 cualquier POST sin x-signature válido. Sin esto un atacante podría
+# disparar unlock_report_for_payment para reportes ajenos. Test cubre:
+#   - secret vacío (default actual) → no validamos, 200 (backward-compat)
+#   - secret set + signature válida → 200
+#   - secret set + signature inválida → 401
+#   - secret set + signature ausente → 401
+#   - secret set + manifest manipulado (id distinto) → 401
+
+
+def _hmac_signature(secret: str, payment_id: str, ts: str, request_id: str = "") -> str:
+    """Genera el header x-signature como lo haría MP."""
+    import hashlib
+    import hmac as _hmac
+    segments = []
+    if payment_id:
+        segments.append(f"id:{payment_id};")
+    if request_id:
+        segments.append(f"request-id:{request_id};")
+    segments.append(f"ts:{ts};")
+    manifest = "".join(segments)
+    sig = _hmac.new(
+        secret.encode("utf-8"),
+        manifest.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    return f"ts={ts},v1={sig}"
+
+
+def test_webhook_no_secret_skips_validation(client, db_factory) -> None:
+    """Backward-compat: si MP_WEBHOOK_SECRET vacío, sigue funcionando
+    sin validar (modo dev/MVP). Solo log warning."""
+    external_ref = "webhook-no-secret"
+    _seed_payment(db_factory, external_ref)
+    info = MpPaymentInfo(
+        payment_id="mp-pay-nosec", status="approved", status_detail="ok",
+        external_reference=external_ref, transaction_amount=49.0,
+    )
+    # Settings default: mp_webhook_secret = ""
+    with patch("app.api.payments.get_payment_info", return_value=info):
+        res = client.post("/api/payments/webhook", json={
+            "type": "payment", "data": {"id": "mp-pay-nosec"},
+        })  # sin x-signature header
+    assert res.status_code == 200
+
+
+def test_webhook_with_secret_valid_signature_accepted(client, db_factory) -> None:
+    external_ref = "webhook-valid-sig"
+    _seed_payment(db_factory, external_ref)
+    secret = "test-secret-abc-123"
+    payment_id = "mp-pay-valid"
+    ts = "1700000000"
+    sig_header = _hmac_signature(secret, payment_id, ts)
+
+    info = MpPaymentInfo(
+        payment_id=payment_id, status="approved", status_detail="ok",
+        external_reference=external_ref, transaction_amount=49.0,
+    )
+    fake_settings = type("S", (), {
+        "mp_webhook_secret": secret,
+        "price_basic_mxn": 49.0, "price_premium_mxn": 99.0,
+        "price_search_mxn": 199.0, "price_dealer_mxn": 1499.0,
+    })()
+    with patch("app.api.payments.get_settings", return_value=fake_settings), \
+         patch("app.api.payments.get_payment_info", return_value=info):
+        res = client.post(
+            "/api/payments/webhook",
+            json={"type": "payment", "data": {"id": payment_id}},
+            headers={"x-signature": sig_header},
+        )
+    assert res.status_code == 200
+
+
+def test_webhook_with_secret_missing_signature_returns_401(client) -> None:
+    fake_settings = type("S", (), {
+        "mp_webhook_secret": "test-secret",
+        "price_basic_mxn": 49.0, "price_premium_mxn": 99.0,
+        "price_search_mxn": 199.0, "price_dealer_mxn": 1499.0,
+    })()
+    with patch("app.api.payments.get_settings", return_value=fake_settings):
+        res = client.post(
+            "/api/payments/webhook",
+            json={"type": "payment", "data": {"id": "mp-pay-x"}},
+        )  # sin header
+    assert res.status_code == 401
+    assert "signature" in res.json()["detail"].lower()
+
+
+def test_webhook_with_secret_invalid_signature_returns_401(client) -> None:
+    fake_settings = type("S", (), {
+        "mp_webhook_secret": "test-secret",
+        "price_basic_mxn": 49.0, "price_premium_mxn": 99.0,
+        "price_search_mxn": 199.0, "price_dealer_mxn": 1499.0,
+    })()
+    with patch("app.api.payments.get_settings", return_value=fake_settings):
+        res = client.post(
+            "/api/payments/webhook",
+            json={"type": "payment", "data": {"id": "mp-pay-x"}},
+            headers={"x-signature": "ts=1700000000,v1=garbage_sig"},
+        )
+    assert res.status_code == 401
+
+
+def test_webhook_with_secret_tampered_payment_id_returns_401(client) -> None:
+    """Manifest con id distinto al body → HMAC mismatch → 401.
+    Esto previene replay attack donde alguien firma para id X pero
+    cambia el body a id Y."""
+    secret = "test-secret"
+    sig_header = _hmac_signature(secret, "mp-pay-aaa", "1700000000")
+    fake_settings = type("S", (), {
+        "mp_webhook_secret": secret,
+        "price_basic_mxn": 49.0, "price_premium_mxn": 99.0,
+        "price_search_mxn": 199.0, "price_dealer_mxn": 1499.0,
+    })()
+    with patch("app.api.payments.get_settings", return_value=fake_settings):
+        res = client.post(
+            "/api/payments/webhook",
+            json={"type": "payment", "data": {"id": "mp-pay-bbb"}},  # id distinto
+            headers={"x-signature": sig_header},
+        )
+    assert res.status_code == 401
+
+
+# ---------------------------------------------------------------------------
 # /api/payments/{external_reference}
 
 
