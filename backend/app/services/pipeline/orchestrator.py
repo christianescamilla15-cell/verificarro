@@ -21,7 +21,6 @@ from app.analyzers import description_analyzer, scoring, seller_analyzer
 from app.analyzers.invoice_validator import validate_invoice_against_listing
 from app.models.report import (
     AnalyzeRequest,
-    ConsultationLinkModel,
     DescriptionFinding,
     PriceEstimate,
     Report,
@@ -74,18 +73,11 @@ async def run_preview_pipeline(
 
     # Para el preview gratis incluimos los links de auto-verificación —
     # alto valor inmediato sin requerir saber la ubicación del auto.
-    raw_links = build_consultation_links(plate=plate, vin=vin, location=None)
-    preview_links = [
-        ConsultationLinkModel(
-            name=l.name,
-            url=l.url,
-            description=l.description,
-            category=l.category,
-            applicable=l.applicable,
-            state_scope=l.state_scope,
-        )
-        for l in raw_links
-    ]
+    # MOD-016: build_consultation_links regresa Pydantic directo, no
+    # necesita mapping.
+    preview_links = build_consultation_links(
+        plate=plate, vin=vin, location=None,
+    )
 
     report = Report(
         score=0,

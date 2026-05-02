@@ -76,17 +76,13 @@ class ExifMetadata:
     gps_lon: float | None = None
 
 
-@dataclass(frozen=True)
-class ExifFinding:
-    photo_index: int
-    flag: Literal[
-        "edited_software",
-        "duplicate_timestamp",
-        "old_photo",
-        "no_exif_anywhere",
-    ]
-    severity: Severity
-    note: str
+# MOD-016: ExifFinding ahora es directamente el Pydantic v2 model que
+# el Report consume. El dataclass espejo se eliminó — antes
+# ExifFinding (dataclass) y ExifFindingModel (Pydantic) eran espejos
+# byte-por-byte y un mapper en pipeline.steps.resolve_exif los
+# convertía. Ese mapper ya no es necesario; el analyzer regresa
+# directamente Pydantic y el Report lo consume sin conversión.
+from app.models.report import ExifFindingModel as ExifFinding
 
 
 def extract_metadata(image_bytes: bytes | None) -> ExifMetadata:

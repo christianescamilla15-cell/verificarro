@@ -37,7 +37,6 @@ del auto está en otro estado del que vive el comprador.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
 from typing import Literal
 from urllib.parse import urlencode
 
@@ -45,16 +44,10 @@ from urllib.parse import urlencode
 PortalCategory = Literal["robo", "fiscal", "ambiental", "infracciones"]
 
 
-@dataclass(frozen=True)
-class ConsultationLink:
-    """Link a portal oficial gob.mx con placa pre-llena (cuando es posible)."""
-
-    name: str
-    url: str
-    description: str
-    category: PortalCategory
-    applicable: bool = True
-    state_scope: str | None = None  # "CDMX", "Edomex", "Federal"
+# MOD-016: ConsultationLink ahora es directamente el Pydantic v2 model
+# que el Report consume. Antes había un mapper que convertía
+# dataclass → ConsultationLinkModel byte-por-byte; ya no es necesario.
+from app.models.report import ConsultationLinkModel as ConsultationLink
 
 
 def build_consultation_links(

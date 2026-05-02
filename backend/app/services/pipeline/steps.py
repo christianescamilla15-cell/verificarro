@@ -184,24 +184,19 @@ async def resolve_exif(listing: ListingData) -> list[ExifFindingModel]:
     En la práctica las fotos de ML Motors vienen sin EXIF (el CDN la
     quita), entonces esto rinde más en upload manual. Si todas las
     descargas fallan, regresa lista vacía sin tumbar el pipeline.
+
+    MOD-016: el analyzer regresa directamente `ExifFindingModel` (Pydantic).
+    Antes había un mapper inline aquí que duplicaba campos del dataclass
+    al espejo Pydantic — ya no es necesario.
     """
     if not listing.photo_urls:
         return []
     try:
         bytes_list = await fetch_photos(listing.photo_urls[:6])
         metadatas = [exif_analyzer.extract_metadata(b) for b in bytes_list]
-        findings = exif_analyzer.analyze_batch(
+        return exif_analyzer.analyze_batch(
             metadatas, listing_year=listing.year
         )
-        return [
-            ExifFindingModel(
-                photo_index=f.photo_index,
-                flag=f.flag,
-                severity=f.severity,
-                note=f.note,
-            )
-            for f in findings
-        ]
     except Exception:  # noqa: BLE001
         logger.exception("EXIF analyzer falló")
         return []

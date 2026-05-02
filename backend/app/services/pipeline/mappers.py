@@ -95,20 +95,17 @@ async def maybe_run_vin_check(
 def build_consultation_links_models(
     req: AnalyzeRequest, listing: ListingData,
 ) -> list[ConsultationLinkModel]:
-    """Genera los `ConsultationLinkModel` de portales gob.mx para el reporte."""
-    raw_links = build_consultation_links(
+    """Wrapper thin de `build_consultation_links()` con args del request.
+
+    MOD-016: post-conversion del dataclass `ConsultationLink` → Pydantic
+    `ConsultationLinkModel` en gob_mx_links.py, este wrapper ya no
+    convierte — solo orquesta los args desde `req` + `listing`. Lo
+    mantenemos por DRY: orchestrator + (futuros callers) llaman a
+    una función con la firma del request en lugar de extraer
+    plate/vin/location en cada sitio.
+    """
+    return build_consultation_links(
         plate=req.plate,
         vin=req.vin,
         location=listing.location,
     )
-    return [
-        ConsultationLinkModel(
-            name=link.name,
-            url=link.url,
-            description=link.description,
-            category=link.category,
-            applicable=link.applicable,
-            state_scope=link.state_scope,
-        )
-        for link in raw_links
-    ]
