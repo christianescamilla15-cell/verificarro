@@ -444,3 +444,85 @@ def _hash_listing(
     ]
     payload = "|".join(parts).encode("utf-8")
     return hashlib.sha256(payload).hexdigest()[:32]
+
+
+# ---------------------------------------------------------------------------
+# MOD-012: Recovery de tareas perdidas por restart de Render
+
+# Window post-paid_at en el que consideramos un Payment como
+# "potencialmente con tarea perdida". Si Christian intentó pagar hace
+# 7 días y el server estaba caído, no queremos re-encolar 7 días después
+# (el listing puede haber expirado, los precios cambiaron, etc.). 30 min
+# es ventana razonable: el unlock pipeline debe completar en <60s normal,
+# 30 min cubre cualquier restart razonable de Render.
+ORPHAN_RECOVERY_WINDOW_MIN = 30
+
+
+async def recover_orphan_paid_payments() -> list[str]:
+    """Detecta Payments PAID sin ReportRecord linked y re-encola sus
+    pipelines. Llamado por el lifespan startup hook después de un boot
+    de Render para recuperar tareas perdidas durante un restart.
+
+    Solo procesa Payments en `ORPHAN_RECOVERY_WINDOW_MIN` minutos
+    recientes — más viejos se asumen abandonados/manualmente arreglados.
+
+    Devuelve lista de payment_ids re-encolados (útil para logging y test).
+    Idempotente: una segunda llamada NO re-encola, porque para entonces
+    los pipelines pendientes ya completaron y el filtro `payment_id NOT IN
+    (reports.payment_id)` los excluye.
+    """
+    import asyncio
+    factory = get_session_factory()
+    async with factory() as session:
+        cutoff = datetime.now(UTC) - timedelta(minutes=ORPHAN_RECOVERY_WINDOW_MIN)
+        # Subquery: payment_ids que ya tienen ReportRecord
+        from sqlalchemy import not_
+        already_reported = select(ReportRecord.payment_id).where(
+            ReportRecord.payment_id.is_not(None)
+        )
+        # Payments PAID recientes sin report linked
+        result = await session.execute(
+            select(Payment).where(
+                Payment.status == PaymentStatus.PAID,
+                Payment.paid_at >= cutoff,
+                not_(Payment.id.in_(already_reported)),
+            )
+        )
+        orphans = list(result.scalars().all())
+
+    if not orphans:
+        return []
+
+    requeued: list[str] = []
+    for payment in orphans:
+        # Si el Payment fue tier search/dealer (preapproval), NO tiene
+        # pipeline asociado — el "report" es la activación del plan,
+        # no un análisis. Skip.
+        if payment.tier in {"search", "dealer"}:
+            continue
+        # Decidimos qué task encolar buscando si hay preview ya creado
+        # (scan-first) o no (legacy URL-first).
+        async with factory() as s2:
+            preview_q = await s2.execute(
+                select(ReportRecord).where(
+                    ReportRecord.payment_id == payment.id,
+                    ReportRecord.status == ReportStatus.PREVIEW,
+                )
+            )
+            has_preview = preview_q.scalar_one_or_none() is not None
+        task_fn = unlock_report_for_payment if has_preview else generate_report_for_payment
+        # Encolamos en el event loop sin bloquear el startup. Cada
+        # tarea ya es idempotente (re-checkea su estado al iniciar).
+        asyncio.create_task(task_fn(payment.id))
+        requeued.append(payment.id)
+        logger.warning(
+            "[ORPHAN-RECOVERY] payment=%s tier=%s — re-encolando %s "
+            "tras posible restart (paid_at=%s)",
+            payment.id, payment.tier, task_fn.__name__, payment.paid_at,
+        )
+
+    if requeued:
+        logger.info(
+            "[ORPHAN-RECOVERY] %d payments re-encolados", len(requeued),
+        )
+    return requeued

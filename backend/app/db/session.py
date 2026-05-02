@@ -72,4 +72,21 @@ def reset_engine_for_tests() -> None:
     _session_factory = None
 
 
+def _set_engine_for_tests(engine, factory) -> None:
+    """Inyecta un engine + factory específicos en el singleton global.
+
+    Útil para tests que llaman directamente a funciones que internamente
+    usan `get_session_factory()` (e.g. `recover_orphan_paid_payments`)
+    pero el test ya creó su propio engine in-memory aislado. Sin esto,
+    el código bajo test crearía un segundo engine apuntando al
+    `DATABASE_URL` del entorno (o el SQLite local file) y los seeds
+    del test no aparecerían.
+
+    Llamar `reset_engine_for_tests()` en teardown para limpiar.
+    """
+    global _engine, _session_factory
+    _engine = engine
+    _session_factory = factory
+
+
 SessionDep = Annotated[AsyncSession, Depends(get_async_session)]

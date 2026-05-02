@@ -12,6 +12,27 @@ from app.rate_limit import limiter
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    # MOD-012: tras un restart de Render (deploy, OOM, idle wakeup), los
+    # background tasks en curso se pierden. Si un Payment fue marcado PAID
+    # pero el pipeline aún no había terminado, el reporte queda sin
+    # generar. `recover_orphan_paid_payments` detecta esos huérfanos en
+    # los últimos 30 min y los re-encola. Failure tolerant: si la query
+    # falla (e.g. DB no disponible al boot), log y continue — el server
+    # arranca igual, los webhooks futuros funcionarán.
+    try:
+        from app.services.report_generator import recover_orphan_paid_payments
+        recovered = await recover_orphan_paid_payments()
+        if recovered:
+            import logging
+            logging.getLogger(__name__).info(
+                "Startup orphan recovery: %d payments re-encolados",
+                len(recovered),
+            )
+    except Exception:  # noqa: BLE001
+        import logging
+        logging.getLogger(__name__).exception(
+            "Startup orphan recovery falló (no-bloqueante)",
+        )
     yield
 
 
