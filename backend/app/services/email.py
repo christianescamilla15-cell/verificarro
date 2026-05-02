@@ -62,7 +62,9 @@ async def send_magic_link_email(to_email: str, magic_link_url: str) -> None:
     try:
         await asyncio.to_thread(_send_sync)
         logger.info("Magic link sent to %s", to_email)
-    except Exception as exc:
+    except (smtplib.SMTPException, OSError) as exc:
+        # SMTPException cubre: auth fail, recipient refused, server disconnect.
+        # OSError cubre: DNS resolución, timeout, connection refused.
         logger.exception("SMTP send failed for %s", to_email)
         raise RuntimeError(f"No pude enviar el email: {exc}") from exc
 
@@ -180,8 +182,9 @@ async def send_report_email(
             "Report email sent to %s (%d bytes PDF, report_id=%s)",
             to_email, len(pdf_bytes), report_id,
         )
-    except Exception as exc:  # noqa: BLE001
-        # No re-raise — email es bonus, no bloqueante para unlock
+    except (smtplib.SMTPException, OSError) as exc:
+        # No re-raise — email es bonus, no bloqueante para unlock.
+        # Cubre auth/recipient/disconnect (SMTP) + network (OSError).
         logger.warning("Report email failed for %s: %s", to_email, exc)
 
 

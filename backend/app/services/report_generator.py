@@ -31,7 +31,9 @@ import hashlib
 import logging
 from datetime import UTC, datetime, timedelta
 
+import httpx
 from sqlalchemy import not_, select
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.analyzers import scoring
 from app.config import get_settings
@@ -277,8 +279,11 @@ async def _send_report_email_safe(
     """
     try:
         pdf_bytes = generate_pdf(report)
-    except Exception:  # noqa: BLE001
-        logger.exception("Falló generar PDF para email post-unlock")
+    except (ValueError, KeyError, AttributeError, OSError) as exc:
+        # reportlab puede levantar variedad: ValueError (datos invalidos),
+        # KeyError/AttributeError (Report fields ausentes), OSError (font
+        # files, image fetch). Ninguno es show-stopper — email es bonus.
+        logger.warning("Falló generar PDF para email post-unlock: %s", exc)
         return
 
     title_hint = (
@@ -304,8 +309,10 @@ async def _send_report_email_safe(
             report_id=preview.id,
             report_url=report_url,
         )
-    except Exception:  # noqa: BLE001
-        logger.exception("send_report_email falló (no-bloqueante)")
+    except RuntimeError as exc:
+        # send_report_email re-empaqueta SMTPException + OSError como
+        # RuntimeError (ver email.py). Catch específico aquí.
+        logger.warning("send_report_email falló (no-bloqueante): %s", exc)
 
 
 async def _apply_photo_dedup(
@@ -325,8 +332,10 @@ async def _apply_photo_dedup(
 
     try:
         bytes_list = await fetch_photos(photo_urls[:6])
-    except Exception:  # noqa: BLE001
-        logger.exception("Photo dedup: falló descarga de fotos")
+    except (httpx.HTTPError, OSError) as exc:
+        # HTTP errors en fetch + OSError (timeout, DNS) — recuperables,
+        # photo_dedup es feature opcional, skip-eable.
+        logger.warning("Photo dedup: falló descarga de fotos: %s", exc)
         return
 
     hashes = [photo_dedup.compute_phash(b) for b in bytes_list]
@@ -336,8 +345,8 @@ async def _apply_photo_dedup(
         matches = await photo_dedup.find_recycled_photos(
             session, hashes, listing_hash
         )
-    except Exception:  # noqa: BLE001
-        logger.exception("Photo dedup: query DB falló")
+    except SQLAlchemyError as exc:
+        logger.warning("Photo dedup: query DB falló: %s", exc)
         matches = []
 
     # Convertir matches en PhotoFinding HIGH
@@ -368,8 +377,8 @@ async def _apply_photo_dedup(
         await photo_dedup.store_photo_hashes(
             session, listing_hash, hash_pairs
         )
-    except Exception:  # noqa: BLE001
-        logger.exception("Photo dedup: store hashes falló")
+    except SQLAlchemyError as exc:
+        logger.warning("Photo dedup: store hashes falló: %s", exc)
 
 
 def _build_analyze_request(

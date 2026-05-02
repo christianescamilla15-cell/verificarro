@@ -69,11 +69,14 @@ def compute_phash(image_bytes: bytes) -> int | None:
         return None
     try:
         import imagehash
-        from PIL import Image
+        from PIL import Image, UnidentifiedImageError
 
         img = Image.open(io.BytesIO(image_bytes))
         hash_obj = imagehash.phash(img, hash_size=8)  # 8x8 = 64 bits
-    except Exception as exc:  # noqa: BLE001
+    except (UnidentifiedImageError, OSError, ValueError) as exc:
+        # UnidentifiedImageError: PIL no reconoce el formato (no JPEG/PNG/WebP).
+        # OSError: bytes truncados o archivo corrupto.
+        # ValueError: imagehash rechaza imagen muy chica (<8x8).
         logger.debug("pHash falló: %s", exc)
         return None
 
