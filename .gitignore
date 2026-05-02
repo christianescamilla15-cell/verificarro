@@ -69,3 +69,6 @@ memoria-proyectos/
 .memoria-local/
 *.local.md
 local-notes/
+
+# AIOS Master cache (ai-memory generado por aios analyze)
+.aios/

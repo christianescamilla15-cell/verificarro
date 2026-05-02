@@ -1,0 +1,11 @@
+# Excluir del Docker build context para mantener images chicas y builds rápidos
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.db
+*.db-journal
+.playwright-profile/
+tests/
+smoke_*.py
+.env

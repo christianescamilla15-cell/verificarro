@@ -1,0 +1,51 @@
+# Verificarro dev environment via Docker Compose.
+#
+# Levanta: backend FastAPI + Postgres local (paridad con prod Render).
+# Frontend NO está aquí — lo corres separado con `cd frontend && npm run dev`
+# para hot-reload rápido.
+#
+# Uso:
+#   docker compose up -d
+#   docker compose logs -f backend
+#   docker compose down
+#
+# El Postgres data se persiste en volume `verificarro-pgdata`.
+# Para borrar todo: docker compose down -v
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: verificarro
+      POSTGRES_PASSWORD: verificarro_dev
+      POSTGRES_DB: verificarro
+    ports:
+      - "5432:5432"
+    volumes:
+      - verificarro-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U verificarro"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "3009:3009"
+    environment:
+      # Override del .env del proyecto para usar el Postgres del compose.
+      DATABASE_URL: postgresql+asyncpg://verificarro:verificarro_dev@postgres:5432/verificarro
+      ENV: development
+      # Las demás variables se leen del .env (montado volume abajo).
+    env_file:
+      - ./backend/.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  verificarro-pgdata:
