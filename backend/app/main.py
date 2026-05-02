@@ -121,6 +121,32 @@ def _rate_limit_handler(request, exc):  # noqa: ARG001
     )
 
 
+def _value_error_handler(request, exc: ValueError):  # noqa: ARG001
+    """Global handler de ValueError → 400 con shape estándar (MOD-018).
+
+    Antes cada endpoint que llamaba a una función validadora repetía el
+    patrón:
+
+        try:
+            return await pipeline(req)
+        except ValueError as e:
+            raise HTTPException(400, detail=str(e))
+
+    Ahora ValueError sin captura local se convierte automáticamente a
+    400 con `{detail, code: "validation_error"}`. Endpoints que quieran
+    mensaje custom siguen con try/except explícito (e.g. el resolve
+    listing de pipeline tiene mensajes específicos por source).
+    """
+    from fastapi.responses import JSONResponse
+    return JSONResponse(
+        status_code=400,
+        content={
+            "detail": str(exc),
+            "code": "validation_error",
+        },
+    )
+
+
 def create_app() -> FastAPI:
     settings = get_settings()
 
@@ -135,6 +161,7 @@ def create_app() -> FastAPI:
     # los decorators @limiter.limit(...) en endpoints surtan efecto.
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_handler)
+    app.add_exception_handler(ValueError, _value_error_handler)
     app.add_middleware(SlowAPIMiddleware)
 
     app.add_middleware(

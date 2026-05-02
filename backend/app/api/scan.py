@@ -22,6 +22,7 @@ se queda con la opción de REPUVE manual a futuro.
 
 import hashlib
 import logging
+import re
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
@@ -176,12 +177,8 @@ async def scan_plate(
             ),
         )
 
-    try:
-        report = await run_preview_pipeline(plate=plate, vin=vin)
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
-        ) from exc
+    # MOD-018: ValueError del pipeline → 400 vía global handler en main.py
+    report = await run_preview_pipeline(plate=plate, vin=vin)
 
     listing_hash = _hash_preview(plate=plate, vin=vin)
     record = ReportRecord(
@@ -305,8 +302,6 @@ async def _resolve_plate_and_vin(
 
 
 def _normalize(s: str) -> str:
-    import re
-
     return re.sub(r"[^A-Z0-9]", "", s.upper())
 
 

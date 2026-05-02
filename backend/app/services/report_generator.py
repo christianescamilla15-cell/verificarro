@@ -26,13 +26,15 @@ anuncio (común con Civic populares).
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import not_, select
 
 from app.analyzers import scoring
+from app.config import get_settings
 from app.db.models import Payment, PaymentStatus, ReportRecord, ReportStatus
 from app.db.session import get_session_factory
 from app.models.report import AnalyzeRequest, ManualListing, PhotoFinding, Source
@@ -288,7 +290,6 @@ async def _send_report_email_safe(
     # URL pública del reporte. En producción el frontend está en
     # `verificarro.mx` o `verificarro.vercel.app`. Construimos best-effort
     # con `MAGIC_LINK_BASE_URL` como pivot (apunta al frontend root).
-    from app.config import get_settings
     settings = get_settings()
     base = settings.magic_link_base_url.rsplit("/auth/", 1)[0]
     report_url = f"{base}/checkout/success?external_reference={payment.mp_external_reference}"
@@ -471,12 +472,10 @@ async def recover_orphan_paid_payments() -> list[str]:
     los pipelines pendientes ya completaron y el filtro `payment_id NOT IN
     (reports.payment_id)` los excluye.
     """
-    import asyncio
     factory = get_session_factory()
     async with factory() as session:
         cutoff = datetime.now(UTC) - timedelta(minutes=ORPHAN_RECOVERY_WINDOW_MIN)
         # Subquery: payment_ids que ya tienen ReportRecord
-        from sqlalchemy import not_
         already_reported = select(ReportRecord.payment_id).where(
             ReportRecord.payment_id.is_not(None)
         )

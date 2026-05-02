@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -213,7 +214,6 @@ def parse_scan_response(raw_json: str) -> SmartScanResult:
     value = str(data.get("value", "") or "").strip()
     if type_value in ("plate", "vin"):
         # Sanitizar: uppercase, sin chars no alfanuméricos
-        import re
         value = re.sub(r"[^A-Z0-9]", "", value.upper())
 
     confidence = data.get("confidence", "low")

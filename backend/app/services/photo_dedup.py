@@ -48,6 +48,8 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import select
 
+from app.db.models import PhotoHash
+
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -109,8 +111,6 @@ async def find_recycled_photos(
 
     Si no hay match para un photo_index, no aparece en el resultado.
     """
-    from app.db.models import PhotoHash
-
     matches: list[tuple[int, dict]] = []
 
     for idx, new_hash in enumerate(new_hashes):
@@ -158,8 +158,6 @@ async def store_photo_hashes(
     `hashes`: lista de `(phash_int, source_url)` tuples — una entrada
     por foto. El `photo_index` se infiere del orden.
     """
-    from app.db.models import PhotoHash
-
     now = datetime.now(UTC)
     for idx, (phash, source_url) in enumerate(hashes):
         if phash is None:
