@@ -239,6 +239,64 @@ async def create_preapproval(
     )
 
 
+@dataclass(frozen=True)
+class MpPreapprovalInfo:
+    """Detalle de un preapproval consultado a la API de MP.
+
+    Se usa en el webhook handler para `topic=preapproval` cuando MP
+    notifica cambios en el ciclo de vida de la suscripción (autorización
+    inicial, pausa, cancelación, fallo de cobro).
+    """
+
+    preapproval_id: str
+    status: str  # 'pending' | 'authorized' | 'paused' | 'cancelled'
+    external_reference: str | None
+    payer_email: str | None
+    transaction_amount: float | None
+    next_payment_date: str | None  # ISO 8601 string si MP lo provee
+
+
+async def get_preapproval_info(mp_preapproval_id: str) -> MpPreapprovalInfo:
+    """Consulta el detalle de un preapproval (suscripción) vía MP API.
+
+    Usado en webhook con topic=preapproval. MP cambia el status del
+    preapproval cuando:
+    - `authorized`: usuario completó el flujo en MP y autorizó.
+    - `paused`: el usuario o MP pausó el cargo recurrente.
+    - `cancelled`: el usuario o MP canceló definitivamente.
+    """
+
+    def _sync_get() -> dict[str, Any]:
+        sdk = _get_sdk()
+        return sdk.preapproval().get(mp_preapproval_id)
+
+    try:
+        response = await asyncio.to_thread(_sync_get)
+    except Exception as exc:
+        logger.exception("MP preapproval lookup failed")
+        raise RuntimeError(
+            f"No pude consultar la suscripción en MP: {exc}"
+        ) from exc
+
+    if response.get("status") not in (200, 201):
+        raise RuntimeError(
+            f"MP devolvió error al consultar preapproval "
+            f"{mp_preapproval_id}: status={response.get('status')}"
+        )
+
+    p = response["response"]
+    return MpPreapprovalInfo(
+        preapproval_id=str(p["id"]),
+        status=p.get("status", "unknown"),
+        external_reference=p.get("external_reference"),
+        payer_email=p.get("payer_email"),
+        transaction_amount=(
+            p.get("auto_recurring", {}).get("transaction_amount")
+        ),
+        next_payment_date=p.get("next_payment_date"),
+    )
+
+
 async def get_payment_info(mp_payment_id: str) -> MpPaymentInfo:
     """Consulta el detalle de un pago vía la API de MP. Usado en webhook."""
 

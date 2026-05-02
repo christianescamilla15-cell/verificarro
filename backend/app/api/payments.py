@@ -37,6 +37,7 @@ from app.services.mercadopago import (
     create_preapproval,
     create_preference,
     get_payment_info,
+    get_preapproval_info,
 )
 from app.services.report_generator import (
     generate_report_for_payment,
@@ -228,7 +229,7 @@ class SubscribeResponse(BaseModel):
 @router.post("/payments/subscribe", response_model=SubscribeResponse)
 @limiter.limit("10/minute")
 async def subscribe(
-    request: Request, req: SubscribeRequest
+    request: Request, req: SubscribeRequest, session: SessionDep,
 ) -> SubscribeResponse:
     """Crea una suscripción mensual real con MP preapproval.
 
@@ -236,24 +237,14 @@ async def subscribe(
     un preapproval que MP cobra automáticamente cada mes hasta que el
     usuario cancele.
 
-    ### Estado operacional (MOD-007)
+    ### Persistencia (MOD-013)
 
-    El webhook de preapproval (topic="preapproval") llega cuando el
-    usuario autoriza, MP cobra exitosamente, o el usuario pausa/cancela.
-    **Ese handler aún NO está implementado** (MOD-013 en
-    `pendientes-modernizacion.md`). Mientras tanto:
-
-    1. MP cobra automáticamente cada mes — esto sí funciona, viene del
-       lado de MP.
-    2. Pero la DB local NO refleja los cobros recurrentes — no creamos
-       Payment row al recibir el webhook preapproval.
-    3. Christian debe **revisar dashboard MP** después de cada
-       suscripción y activar manualmente al cliente (mandar credenciales
-       por email + activar tier en algún proceso futuro).
-
-    El logger emite WARN explícito en cada subscribe para que el ops
-    operativo sea visible. Frontend muestra `activation_note` al usuario
-    diciendo que la activación toma <1 hora hábil — alinea expectativas.
+    Insertamos un `Payment` row con `status=pending` y `tier=search|dealer`
+    al crear el preapproval. Cuando MP autorice (vía webhook
+    `topic=preapproval` con `status=authorized`), el handler de webhook
+    actualiza ese mismo row a `status=paid`. Esto permite que el
+    dashboard del usuario refleje correctamente cuando su plan está
+    activo y cuándo expira.
     """
     settings = get_settings()
     amount = _amount_for_tier(req.tier, settings)
@@ -275,14 +266,25 @@ async def subscribe(
             detail=f"No pudimos crear la suscripción: {exc}",
         ) from exc
 
-    # MOD-007: warn explícito mientras el handler de preapproval no
-    # está implementado. Christian debe verificar MP dashboard para
-    # confirmar el primer cobro y activar al cliente manualmente.
-    logger.warning(
-        "[SUBSCRIBE-MANUAL-ACTIVATION] preapproval=%s tier=%s email=%s "
-        "amount=%s — MP cobrará mensual; webhook preapproval pendiente, "
-        "activación manual requerida (ver MP dashboard)",
-        result.preapproval_id, req.tier, req.payer_email, amount,
+    # MOD-013: persistir Payment para que el webhook de preapproval pueda
+    # encontrarlo por external_reference y actualizarlo cuando MP
+    # autorice / pause / cancele.
+    payment = Payment(
+        amount_mxn=amount,
+        tier=req.tier,
+        status=PaymentStatus.PENDING,
+        mp_external_reference=result.external_reference,
+        mp_preference_id=result.preapproval_id,  # reusamos col para
+                                                  # almacenar preapproval_id
+        payer_email=req.payer_email.strip(),
+    )
+    session.add(payment)
+    await session.flush()
+
+    logger.info(
+        "[SUBSCRIBE-CREATED] preapproval=%s payment=%s tier=%s email=%s "
+        "amount=%s — esperando webhook preapproval para activar",
+        result.preapproval_id, payment.id, req.tier, req.payer_email, amount,
     )
 
     return SubscribeResponse(
@@ -334,30 +336,34 @@ async def webhook(
     payload = await request.json()
     topic = payload.get("type") or payload.get("topic")
     data = payload.get("data") or {}
-    mp_payment_id = data.get("id") or payload.get("data.id")
+    mp_id = data.get("id") or payload.get("data.id")
 
     # HMAC check ANTES de cualquier procesamiento. Si la firma es mala,
     # ni siquiera consultamos a MP por el ID (evita amplification).
-    if not _verify_mp_signature(request, mp_payment_id):
+    if not _verify_mp_signature(request, mp_id):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Webhook signature inválida",
         )
 
-    if topic != "payment" or not mp_payment_id:
+    # MOD-013: branch para topic=preapproval (suscripciones search/dealer)
+    if topic == "preapproval" and mp_id:
+        return await _handle_preapproval_webhook(str(mp_id), session)
+
+    if topic != "payment" or not mp_id:
         # Otros topics (merchant_order, etc.) los ignoramos por ahora.
-        logger.info("Webhook MP ignorado: topic=%s id=%s", topic, mp_payment_id)
+        logger.info("Webhook MP ignorado: topic=%s id=%s", topic, mp_id)
         return {"ok": True, "ignored": "non-payment-topic"}
 
     try:
-        info = await get_payment_info(str(mp_payment_id))
+        info = await get_payment_info(str(mp_id))
     except RuntimeError as exc:
-        logger.warning("No pude consultar payment %s: %s", mp_payment_id, exc)
+        logger.warning("No pude consultar payment %s: %s", mp_id, exc)
         return {"ok": True, "ignored": "lookup-failed"}
 
     if not info.external_reference:
         logger.warning(
-            "Payment %s no tiene external_reference, ignorando", mp_payment_id
+            "Payment %s no tiene external_reference, ignorando", mp_id
         )
         return {"ok": True, "ignored": "no-external-reference"}
 
@@ -396,6 +402,87 @@ async def webhook(
             payment.id, task.__name__,
         )
     return {"ok": True, "status": new_status.value}
+
+
+async def _handle_preapproval_webhook(
+    preapproval_id: str, session,
+) -> dict[str, Any]:
+    """Handler para `topic=preapproval` (MOD-013).
+
+    MP llama aquí cuando cambia el ciclo de vida de una suscripción
+    (search/dealer):
+    - `authorized`: usuario completó el flow en MP y autorizó cobros.
+       → status del Payment local pasa a PAID, paid_at = now.
+    - `paused`: el cobro recurrente está pausado (usuario o MP).
+       → status pasa a PENDING (esperando reanudar) — TODO: estado más
+       específico si lo necesitamos en el dashboard.
+    - `cancelled`: cancelación definitiva.
+       → status pasa a FAILED. Frontend mostrará "tu suscripción
+       terminó" en el dashboard.
+    - `pending`: aún sin autorizar (estado inicial post-create_preapproval).
+       → no-op, esperamos siguiente webhook.
+
+    Idempotente: dos webhooks consecutivos con mismo status → no-op.
+    """
+    try:
+        info = await get_preapproval_info(preapproval_id)
+    except RuntimeError as exc:
+        logger.warning(
+            "No pude consultar preapproval %s: %s", preapproval_id, exc,
+        )
+        return {"ok": True, "ignored": "lookup-failed"}
+
+    if not info.external_reference:
+        logger.warning(
+            "Preapproval %s no tiene external_reference, ignorando",
+            preapproval_id,
+        )
+        return {"ok": True, "ignored": "no-external-reference"}
+
+    # Buscamos el Payment row creado en /subscribe (mp_external_reference
+    # matchea el del preapproval).
+    result = await session.execute(
+        select(Payment).where(
+            Payment.mp_external_reference == info.external_reference
+        )
+    )
+    payment = result.scalar_one_or_none()
+    if not payment:
+        logger.warning(
+            "Preapproval external_reference %s no existe en DB",
+            info.external_reference,
+        )
+        return {"ok": True, "ignored": "unknown-external-reference"}
+
+    new_status = _map_preapproval_status(info.status)
+    if new_status == payment.status:
+        return {"ok": True, "ignored": "idempotent-duplicate"}
+
+    payment.status = new_status
+    if new_status == PaymentStatus.PAID:
+        payment.paid_at = datetime.now(UTC)
+        logger.info(
+            "[PREAPPROVAL-AUTHORIZED] payment=%s tier=%s email=%s "
+            "amount=%s — plan activo, mandar credenciales por email",
+            payment.id, payment.tier, payment.payer_email, payment.amount_mxn,
+        )
+        # TODO: agregar background task para mandar email de bienvenida
+        # con instrucciones de uso del plan. Por ahora el log es señal
+        # operacional; Christian puede mandar el email manualmente
+        # desde la integración Resend hasta que automaticemos.
+
+    return {"ok": True, "preapproval_status": info.status, "payment_status": new_status.value}
+
+
+def _map_preapproval_status(mp_status: str) -> PaymentStatus:
+    """Mapea estados de MP preapproval → `PaymentStatus` interno."""
+    if mp_status == "authorized":
+        return PaymentStatus.PAID
+    if mp_status == "cancelled":
+        return PaymentStatus.FAILED
+    # pending, paused → mantenemos PENDING (no tenemos estado dedicado
+    # para "paused"; cuando el dashboard lo necesite se agrega).
+    return PaymentStatus.PENDING
 
 
 async def _payment_has_preview(session, payment_id: str) -> bool:
