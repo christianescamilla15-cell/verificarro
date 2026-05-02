@@ -1,23 +1,15 @@
 import { Link } from 'react-router-dom'
-import { ShieldCheck } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth.js'
+import BrandMark from './BrandMark.jsx'
 import ThemeToggle from './ThemeToggle.jsx'
 
-/**
- * Logo: caja con gradient brand y un escudo-check adentro.
- *
- * El gradient `--gradient-brand` (azul → cyan) ya transmite el lenguaje
- * visual de "verificación / scanning". Combinado con el ícono de escudo
- * con check (símbolo universal de "verificado seguro") cierra el
- * mensaje sin necesidad de copy explicativo.
- */
 export default function Header() {
   const { user, loading, logout } = useAuth()
   return (
     <header className="site-header">
       <Link to="/" className="brand" aria-label="Verificarro inicio">
-        <span className="brand-mark">
-          <ShieldCheck size={20} strokeWidth={2.4} />
+        <span className="brand-mark" aria-hidden="true">
+          <BrandMark size={22} variant="glyph" />
         </span>
         <span>verifica<span className="brand-accent">rro</span></span>
       </Link>

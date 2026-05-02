@@ -19,15 +19,12 @@
   <rect width="1200" height="630" fill="url(#bg)"/>
   <rect width="1200" height="630" fill="url(#glow)"/>
 
-  <!-- Logo + Brand -->
+  <!-- Logo + Brand (V/✓ mark, mismo glifo que favicon) -->
   <g transform="translate(80, 80)">
-    <rect width="80" height="80" rx="16" fill="url(#brand)"/>
+    <rect width="80" height="80" rx="18" fill="url(#brand)"/>
     <path
-      d="M40 18 L62 27 V44 C62 56 53 64 40 68 C27 64 18 56 18 44 V27 Z"
-      fill="none" stroke="white" stroke-width="4" stroke-linejoin="round"/>
-    <path
-      d="M27 41 L36 49 L52 33"
-      fill="none" stroke="white" stroke-width="5"
+      d="M 20 27.5 L 40 55 L 62.5 22.5"
+      fill="none" stroke="white" stroke-width="8.5"
       stroke-linecap="round" stroke-linejoin="round"/>
   </g>
 
