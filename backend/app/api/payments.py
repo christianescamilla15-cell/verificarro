@@ -21,13 +21,13 @@ import hmac
 import logging
 import uuid
 from datetime import UTC, datetime
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field, HttpUrl
 from sqlalchemy import select
 
-from app.config import get_settings
+from app.config import Settings, get_settings
 from app.db.models import Payment, PaymentStatus, ReportRecord, ReportStatus
 from app.db.session import SessionDep
 from app.rate_limit import limiter
@@ -47,6 +47,9 @@ from app.services.report_generator import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["payments"])
+
+# DI shortcut para inyectar Settings en endpoints (MOD-017)
+SettingsDep = Annotated[Settings, Depends(get_settings)]
 
 
 class CheckoutRequest(BaseModel):
@@ -112,14 +115,16 @@ class PaymentStatusResponse(BaseModel):
 @router.post("/payments/checkout", response_model=CheckoutResponse)
 @limiter.limit("10/minute")
 async def checkout(
-    request: Request, req: CheckoutRequest, session: SessionDep
+    request: Request,
+    req: CheckoutRequest,
+    session: SessionDep,
+    settings: SettingsDep,
 ) -> CheckoutResponse:
     """Crea un Payment pending y la Preference de MP.
 
     Si `report_id` viene set, hidrata `plate`/`vin` desde ese preview
     Report y enlaza Payment ↔ Report (bidireccional).
     """
-    settings = get_settings()
     amount = _amount_for_tier(req.tier, settings)
     external_ref = str(uuid.uuid4())
 
@@ -229,7 +234,10 @@ class SubscribeResponse(BaseModel):
 @router.post("/payments/subscribe", response_model=SubscribeResponse)
 @limiter.limit("10/minute")
 async def subscribe(
-    request: Request, req: SubscribeRequest, session: SessionDep,
+    request: Request,
+    req: SubscribeRequest,
+    session: SessionDep,
+    settings: SettingsDep,
 ) -> SubscribeResponse:
     """Crea una suscripción mensual real con MP preapproval.
 
@@ -246,7 +254,6 @@ async def subscribe(
     dashboard del usuario refleje correctamente cuando su plan está
     activo y cuándo expira.
     """
-    settings = get_settings()
     amount = _amount_for_tier(req.tier, settings)
 
     reason_label = "Búsqueda activa" if req.tier == "search" else "Dealer / Lotero"

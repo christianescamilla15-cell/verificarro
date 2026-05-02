@@ -1,9 +1,13 @@
-from fastapi import APIRouter
+from typing import Annotated
+
+from fastapi import APIRouter, Depends
 
 from app import __version__
-from app.config import get_settings
+from app.config import Settings, get_settings
 
 router = APIRouter(tags=["health"])
+
+SettingsDep = Annotated[Settings, Depends(get_settings)]
 
 
 @router.get("/health")
@@ -12,14 +16,13 @@ async def health() -> dict:
 
 
 @router.get("/api/config")
-async def public_config() -> dict:
+async def public_config(settings: SettingsDep) -> dict:
     """Configuración pública del servicio que el frontend consume.
 
     Solo expone toggles y datos no-secretos. El frontend lo usa para
     decidir qué CTAs mostrar (e.g., botón WhatsApp solo si hay número
     configurado).
     """
-    settings = get_settings()
     wa_number = settings.whatsapp_support_number.strip()
     return {
         "whatsapp_enabled": bool(wa_number),
