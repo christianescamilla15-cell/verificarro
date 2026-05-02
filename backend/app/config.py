@@ -172,6 +172,17 @@ class Settings(BaseSettings):
     )
     smtp_from_name: str = Field(default="Verificarro", alias="SMTP_FROM_NAME")
 
+    # --- Sentry (MOD-010) ---
+    # DSN del proyecto FastAPI en sentry.io. Vacío en dev = no se reportan
+    # errores. En prod, set en Render env vars.
+    sentry_dsn: str = Field(default="", alias="SENTRY_DSN")
+    # Sample rate de traces (performance monitoring). 0.0 = solo errors,
+    # 1.0 = traces de TODAS las requests (overkill + cuota free se llena).
+    # 0.1 = 10% de requests trackeadas para identificar slow endpoints.
+    sentry_traces_sample_rate: float = Field(
+        default=0.1, alias="SENTRY_TRACES_SAMPLE_RATE"
+    )
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
