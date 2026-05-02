@@ -408,11 +408,15 @@ def test_payment_status_returns_report_status(client, db_factory) -> None:
             )
             s.add(report)
             await s.commit()
-            return payment.mp_external_reference, report.id
+            return payment.mp_external_reference, report.id, payment.id
 
-    ext_ref, report_id = asyncio.get_event_loop().run_until_complete(_seed())
+    ext_ref, report_id, payment_id = asyncio.get_event_loop().run_until_complete(_seed())
 
-    res = client.get(f"/api/payments/{ext_ref}")
+    # MOD-005: el endpoint requiere ?token=X. Recomputamos con el helper.
+    from app.api.payments import _make_polling_token
+    token = _make_polling_token(payment_id, ext_ref)
+
+    res = client.get(f"/api/payments/{ext_ref}?token={token}")
     assert res.status_code == 200
     body = res.json()
     assert body["status"] == "paid"

@@ -57,6 +57,14 @@ export default function CheckoutTier() {
       setError(res.error || 'No pudimos iniciar la suscripción. Intenta de nuevo.')
       return
     }
+    // Persistimos polling_token (MOD-005) para que CheckoutSuccess pueda
+    // consultar status post-redirect MP.
+    try {
+      localStorage.setItem(
+        `verificarro_polling_${res.data.external_reference}`,
+        res.data.polling_token,
+      )
+    } catch { /* localStorage en modo privado puede fallar — ignorable */ }
     window.location.href = res.data.init_point
   }
 

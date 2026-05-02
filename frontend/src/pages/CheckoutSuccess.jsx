@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { api } from '../lib/api.js'
 import Spinner from '../components/Spinner.jsx'
@@ -19,42 +19,75 @@ export default function CheckoutSuccess() {
   const [report, setReport] = useState(null)
   const [error, setError] = useState(null)
   const [attempts, setAttempts] = useState(0)
+  const attemptsRef = useRef(0)  // MOD-006: leer attempts sin re-disparar effect
 
   useEffect(() => {
     if (!externalRef) {
       setError('No encontramos tu pago. Si ya pagaste, contáctanos.')
       return
     }
+
+    // MOD-005: el polling token vive en localStorage; lo guardamos antes
+    // del redirect a MP. Sin él el backend rechaza con 401.
+    let pollingToken = null
+    try {
+      pollingToken = localStorage.getItem(`verificarro_polling_${externalRef}`)
+    } catch { /* modo privado, lo manejamos abajo */ }
+
+    if (!pollingToken) {
+      setError(
+        'No encontramos tu sesión de pago. Si ya pagaste, te llegará el ' +
+        'reporte por email en ~1 min. Si tienes dudas escríbenos por WhatsApp.',
+      )
+      return
+    }
+
     let mounted = true
     let timer
 
     async function poll() {
-      const res = await api.get(`/api/payments/${externalRef}`)
+      const res = await api.get(
+        `/api/payments/${externalRef}?token=${encodeURIComponent(pollingToken)}`,
+      )
       if (!mounted) return
       if (!res.ok) {
         if (res.status === 404) {
           setError('Pago no encontrado. Si pagaste, espera unos segundos y refresca.')
           return
         }
+        if (res.status === 401) {
+          setError(
+            'No pudimos validar tu sesión. Si ya pagaste te llegará el ' +
+            'reporte por email; si tienes dudas escríbenos por WhatsApp.',
+          )
+          return
+        }
         setError(res.error)
         return
       }
       setPaymentStatus(res.data.status)
-      // Solo mostramos el reporte cuando está unlocked. Mientras esté
-      // preview el background task aún está corriendo el pipeline.
       if (res.data.report_status === 'unlocked' && res.data.report_json) {
         setReport(res.data.report_json)
+        // Cleanup del token: ya no lo necesitamos
+        try {
+          localStorage.removeItem(`verificarro_polling_${externalRef}`)
+        } catch { /* ignore */ }
         return
       }
       if (res.data.status === 'failed') {
         setError('El pago falló. Intenta de nuevo desde la página principal.')
         return
       }
-      setAttempts((n) => n + 1)
-      if (attempts < MAX_POLL_ATTEMPTS) {
+      // MOD-006: usamos ref para chequear cap sin re-disparar el effect.
+      attemptsRef.current += 1
+      setAttempts(attemptsRef.current)
+      if (attemptsRef.current < MAX_POLL_ATTEMPTS) {
         timer = setTimeout(poll, POLL_INTERVAL_MS)
       } else {
-        setError('Tu reporte está tardando más de lo esperado. Te avisaremos al email cuando esté listo.')
+        setError(
+          'Tu reporte está tardando más de lo esperado. Te avisaremos al ' +
+          'email cuando esté listo.',
+        )
       }
     }
 
@@ -63,7 +96,9 @@ export default function CheckoutSuccess() {
       mounted = false
       if (timer) clearTimeout(timer)
     }
-  }, [externalRef, attempts])
+    // MOD-006: SIN `attempts` en deps — antes el effect se re-disparaba
+    // cada incremento, generando timers paralelos y duplicando el polling.
+  }, [externalRef])
 
   if (error) {
     return (

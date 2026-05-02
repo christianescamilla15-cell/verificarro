@@ -94,6 +94,7 @@ class CheckoutResponse(BaseModel):
     sandbox_init_point: str
     amount_mxn: float
     tier: str
+    polling_token: str  # MOD-005: requerido en GET /payments/{ref}
 
 
 class PaymentStatusResponse(BaseModel):
@@ -196,6 +197,7 @@ async def checkout(
         sandbox_init_point=pref.sandbox_init_point,
         amount_mxn=amount,
         tier=req.tier,
+        polling_token=_make_polling_token(payment.id, external_ref),
     )
 
 
@@ -219,6 +221,7 @@ class SubscribeResponse(BaseModel):
     external_reference: str
     amount_mxn: float
     tier: str
+    polling_token: str  # MOD-005: para futuras consultas de status
 
 
 @router.post("/payments/subscribe", response_model=SubscribeResponse)
@@ -263,6 +266,9 @@ async def subscribe(
         external_reference=result.external_reference,
         amount_mxn=amount,
         tier=req.tier,
+        polling_token=_make_polling_token(
+            result.preapproval_id, result.external_reference,
+        ),
     )
 
 
@@ -377,9 +383,21 @@ async def _payment_has_preview(session, payment_id: str) -> bool:
     "/payments/{external_reference}", response_model=PaymentStatusResponse
 )
 async def payment_status(
-    external_reference: str, session: SessionDep
+    external_reference: str,
+    session: SessionDep,
+    token: str | None = None,
 ) -> PaymentStatusResponse:
-    """Polling endpoint para que el frontend sepa cuándo está listo."""
+    """Polling endpoint para que el frontend sepa cuándo está listo.
+
+    ### Auth (MOD-005)
+
+    Requiere `?token=<polling_token>` que el frontend recibió en la
+    response de `/checkout` o `/subscribe`. El token es un HMAC del
+    `payment_id + external_reference`, validado stateless. Sin esto,
+    cualquiera con el `external_reference` (UUIDv4 opaco pero filtrable
+    en referer headers, browser history, screenshots compartidos) podía
+    leer el `report_json` completo con PII (payer_email, plate, VIN).
+    """
     result = await session.execute(
         select(Payment).where(Payment.mp_external_reference == external_reference)
     )
@@ -388,6 +406,13 @@ async def payment_status(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Pago no encontrado",
+        )
+
+    expected = _make_polling_token(payment.id, external_reference)
+    if not token or not hmac.compare_digest(expected, token):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Polling token inválido o ausente",
         )
 
     report_id: str | None = None
@@ -420,6 +445,26 @@ async def payment_status(
 
 # ---------------------------------------------------------------------------
 # Helpers
+
+
+def _make_polling_token(payment_id: str, external_reference: str) -> str:
+    """HMAC-SHA256 stateless del payment_id + external_reference.
+
+    Usado por `/payments/{ref}?token=X` para validar que solo el cliente
+    que originó el checkout puede consultar el status (que incluye PII).
+
+    Recompute en cada request — no se almacena en DB. Si JWT_SECRET rota,
+    los tokens viejos invalidan automáticamente (esperado: el frontend
+    pierde polling de un Payment muy viejo, pero ya están unlocked vía
+    email transaccional).
+    """
+    settings = get_settings()
+    msg = f"{payment_id}:{external_reference}".encode("utf-8")
+    return hmac.new(
+        settings.jwt_secret.encode("utf-8"),
+        msg,
+        hashlib.sha256,
+    ).hexdigest()[:32]
 
 
 def _amount_for_tier(tier: str, settings) -> float:

@@ -364,13 +364,20 @@ def test_webhook_with_secret_tampered_payment_id_returns_401(client) -> None:
 
 
 # ---------------------------------------------------------------------------
-# /api/payments/{external_reference}
+# /api/payments/{external_reference} (MOD-005: requiere polling_token)
+
+
+def _polling_token_for(payment_id: str, external_ref: str) -> str:
+    """Recomputa el polling_token con el JWT_SECRET de tests."""
+    from app.api.payments import _make_polling_token
+    return _make_polling_token(payment_id, external_ref)
 
 
 def test_payment_status_pending_returns_no_report(client, db_factory) -> None:
     external_ref = "status-ref-pending"
-    _seed_payment(db_factory, external_ref)
-    res = client.get(f"/api/payments/{external_ref}")
+    payment_id = _seed_payment(db_factory, external_ref)
+    token = _polling_token_for(payment_id, external_ref)
+    res = client.get(f"/api/payments/{external_ref}?token={token}")
     assert res.status_code == 200
     body = res.json()
     assert body["status"] == "pending"
@@ -379,5 +386,40 @@ def test_payment_status_pending_returns_no_report(client, db_factory) -> None:
 
 
 def test_payment_status_not_found_returns_404(client) -> None:
-    res = client.get("/api/payments/does-not-exist")
+    res = client.get("/api/payments/does-not-exist?token=anything")
     assert res.status_code == 404
+
+
+def test_payment_status_without_token_returns_401(client, db_factory) -> None:
+    """MOD-005: sin ?token=X el endpoint rechaza, aunque el ref exista."""
+    external_ref = "status-ref-no-token"
+    _seed_payment(db_factory, external_ref)
+    res = client.get(f"/api/payments/{external_ref}")  # sin token
+    assert res.status_code == 401
+    assert "token" in res.json()["detail"].lower()
+
+
+def test_payment_status_with_invalid_token_returns_401(
+    client, db_factory,
+) -> None:
+    """Token con HMAC mal calculado → 401, no leak del status."""
+    external_ref = "status-ref-bad-token"
+    _seed_payment(db_factory, external_ref)
+    res = client.get(
+        f"/api/payments/{external_ref}?token=garbage-not-real-hmac"
+    )
+    assert res.status_code == 401
+
+
+def test_payment_status_with_token_for_other_payment_returns_401(
+    client, db_factory,
+) -> None:
+    """Token válido para Payment A NO permite leer Payment B (binding)."""
+    ref_a = "status-ref-a"
+    ref_b = "status-ref-b"
+    payment_a_id = _seed_payment(db_factory, ref_a)
+    _seed_payment(db_factory, ref_b)
+    token_a = _polling_token_for(payment_a_id, ref_a)
+    # Intento usar token de A para consultar B
+    res = client.get(f"/api/payments/{ref_b}?token={token_a}")
+    assert res.status_code == 401

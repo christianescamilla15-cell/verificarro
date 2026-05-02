@@ -40,6 +40,15 @@ export default function PaywallModal({ reportId, onClose }) {
       setError(res.error || 'No pudimos iniciar el pago. Intenta de nuevo.')
       return
     }
+    // Guardamos el polling_token (MOD-005) en localStorage antes del
+    // redirect a MP. Cuando MP devuelva al user a /checkout/success
+    // con ?external_reference=X, el polling lee el token desde localStorage.
+    try {
+      localStorage.setItem(
+        `verificarro_polling_${res.data.external_reference}`,
+        res.data.polling_token,
+      )
+    } catch { /* localStorage en modo privado puede fallar — ignorable */ }
     window.location.href = res.data.init_point
   }
 
