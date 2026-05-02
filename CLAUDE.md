@@ -1,5 +1,17 @@
 # Verificarro — MVP
 
+## Sistema de equipos + memoria local
+
+> **READ FIRST**: este proyecto opera como una startup interna con 7 equipos especializados orquestados por un agente central. Antes de tocar cualquier dominio:
+
+1. Lee la memoria local en `C:\Users\DANNY\Desktop\BACKUP_CHRIS\memoria-proyectos\verificarro\INDEX.md` (NUNCA va a git, contiene credenciales y contexto sensible).
+2. Para cualquier tarea, considera invocar al agente correspondiente vía `Agent` tool:
+   - `verificarro-orchestrator` (decide qué equipo activa)
+   - `verificarro-engineering` / `-design` / `-marketing` / `-finance` / `-cs` / `-data` / `-legal`
+3. Los agentes y este CLAUDE.md SÍ van a git. Los docs operacionales NO.
+
+Detalle del sistema en `.claude/agents/verificarro-orchestrator.md`.
+
 ## Qué es
 Verificador de auto usado para Mercado Libre Motors y Facebook Marketplace.
 Pega URL del anuncio → reporte en 60s con score 0-100, validación REPUVE,

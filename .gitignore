@@ -60,3 +60,12 @@ seeds/output/
 # OS
 Thumbs.db
 desktop.ini
+
+# Memoria local del proyecto — vive en BACKUP_CHRIS\memoria-proyectos\verificarro\
+# y NUNCA debe entrar al repo. Contiene credenciales operacionales y contexto
+# interno que no debe quedar en transcripts ni en GitHub. Si por accidente
+# alguien (o yo, Claude) hace symlink/copia adentro del repo, esto lo bloquea.
+memoria-proyectos/
+.memoria-local/
+*.local.md
+local-notes/
