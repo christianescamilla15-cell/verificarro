@@ -222,6 +222,7 @@ class SubscribeResponse(BaseModel):
     amount_mxn: float
     tier: str
     polling_token: str  # MOD-005: para futuras consultas de status
+    activation_note: str  # MOD-007: status comunicado al frontend
 
 
 @router.post("/payments/subscribe", response_model=SubscribeResponse)
@@ -235,10 +236,24 @@ async def subscribe(
     un preapproval que MP cobra automáticamente cada mes hasta que el
     usuario cancele.
 
+    ### Estado operacional (MOD-007)
+
     El webhook de preapproval (topic="preapproval") llega cuando el
     usuario autoriza, MP cobra exitosamente, o el usuario pausa/cancela.
-    Por ahora ese handler está pendiente — la activación operacional
-    sigue siendo manual hasta confirmar el flujo end-to-end.
+    **Ese handler aún NO está implementado** (MOD-013 en
+    `pendientes-modernizacion.md`). Mientras tanto:
+
+    1. MP cobra automáticamente cada mes — esto sí funciona, viene del
+       lado de MP.
+    2. Pero la DB local NO refleja los cobros recurrentes — no creamos
+       Payment row al recibir el webhook preapproval.
+    3. Christian debe **revisar dashboard MP** después de cada
+       suscripción y activar manualmente al cliente (mandar credenciales
+       por email + activar tier en algún proceso futuro).
+
+    El logger emite WARN explícito en cada subscribe para que el ops
+    operativo sea visible. Frontend muestra `activation_note` al usuario
+    diciendo que la activación toma <1 hora hábil — alinea expectativas.
     """
     settings = get_settings()
     amount = _amount_for_tier(req.tier, settings)
@@ -260,6 +275,16 @@ async def subscribe(
             detail=f"No pudimos crear la suscripción: {exc}",
         ) from exc
 
+    # MOD-007: warn explícito mientras el handler de preapproval no
+    # está implementado. Christian debe verificar MP dashboard para
+    # confirmar el primer cobro y activar al cliente manualmente.
+    logger.warning(
+        "[SUBSCRIBE-MANUAL-ACTIVATION] preapproval=%s tier=%s email=%s "
+        "amount=%s — MP cobrará mensual; webhook preapproval pendiente, "
+        "activación manual requerida (ver MP dashboard)",
+        result.preapproval_id, req.tier, req.payer_email, amount,
+    )
+
     return SubscribeResponse(
         preapproval_id=result.preapproval_id,
         init_point=result.init_point,
@@ -268,6 +293,11 @@ async def subscribe(
         tier=req.tier,
         polling_token=_make_polling_token(
             result.preapproval_id, result.external_reference,
+        ),
+        activation_note=(
+            "Tu plan se activa cuando Mercado Pago confirme el primer "
+            "cobro. Recibirás email con tus credenciales en menos de 1 "
+            "hora hábil. Si tarda más, escríbenos por WhatsApp."
         ),
     )
 

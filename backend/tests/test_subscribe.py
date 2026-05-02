@@ -43,6 +43,12 @@ def test_subscribe_search_tier_creates_preapproval() -> None:
     call_kwargs = mock.call_args.kwargs
     assert call_kwargs["amount_mxn"] == 199.0
     assert "Búsqueda activa" in call_kwargs["reason"]
+    # MOD-005: polling_token presente
+    assert body["polling_token"]
+    assert len(body["polling_token"]) == 32
+    # MOD-007: activation_note comunicado al usuario
+    assert "Mercado Pago" in body["activation_note"]
+    assert "1 hora" in body["activation_note"]
 
 
 def test_subscribe_dealer_tier_charges_1499() -> None:
