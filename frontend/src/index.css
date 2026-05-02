@@ -43,8 +43,8 @@ button {
 }
 
 ::selection {
-  background: var(--amber-7);
-  color: var(--mauve-12);
+  background: var(--blue-7);
+  color: var(--slate-12);
 }
 
 h1, h2, h3, h4 {

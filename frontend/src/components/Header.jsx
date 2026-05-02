@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { ShieldCheck } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth.js'
+import ThemeToggle from './ThemeToggle.jsx'
 
 /**
  * Logo: caja con gradient brand y un escudo-check adentro.
@@ -31,6 +32,7 @@ export default function Header() {
         {!loading && !user && (
           <Link to="/login" className="header-link">Iniciar sesión</Link>
         )}
+        <ThemeToggle />
       </nav>
     </header>
   )

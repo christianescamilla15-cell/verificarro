@@ -4,7 +4,28 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#06080d" />
-    <meta name="color-scheme" content="dark" />
+    <meta name="color-scheme" content="dark light" />
+
+    <!-- Resolve theme antes del paint para evitar FOUC al recargar en light. -->
+    <script>
+      (function () {
+        try {
+          var stored = localStorage.getItem('verificarro_theme');
+          var mql = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)');
+          var theme = stored === 'light' || stored === 'dark'
+            ? stored
+            : (mql && mql.matches ? 'light' : 'dark');
+          var html = document.documentElement;
+          if (theme === 'light') {
+            html.classList.add('light');
+            html.classList.remove('dark');
+          } else {
+            html.classList.add('dark');
+            html.classList.remove('light');
+          }
+        } catch (_) { /* localStorage puede fallar en privado */ }
+      })();
+    </script>
 
     <!-- ===== Primary SEO ===== -->
     <title>Verificarro — Checa tu auto antes de soltar el cash</title>

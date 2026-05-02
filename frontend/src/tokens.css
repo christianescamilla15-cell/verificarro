@@ -30,6 +30,20 @@
      12   High-contrast text
    ============================================================ */
 
+/* Import order matters: las escalas light de Radix usan selector
+   `:root, .light, .light-theme`, así que SIEMPRE se aplican al `:root`.
+   Si las importamos DESPUÉS de las dark, ganarían por orden de fuente
+   incluso con `html.dark` activo (misma specificity 0,1,0). Por eso
+   light va primero y dark al final — el patrón canónico de Radix. */
+@import "@radix-ui/colors/slate.css";
+@import "@radix-ui/colors/slate-alpha.css";
+@import "@radix-ui/colors/blue.css";
+@import "@radix-ui/colors/blue-alpha.css";
+@import "@radix-ui/colors/cyan.css";
+@import "@radix-ui/colors/grass.css";
+@import "@radix-ui/colors/crimson.css";
+@import "@radix-ui/colors/amber.css";
+
 @import "@radix-ui/colors/slate-dark.css";
 @import "@radix-ui/colors/slate-dark-alpha.css";
 @import "@radix-ui/colors/blue-dark.css";
@@ -47,6 +61,7 @@
   --bg-card-hover: var(--slate-4);
   --bg-muted: var(--slate-5);
   --bg-overlay: rgba(2, 4, 9, 0.78);
+  --bg-header: rgba(6, 8, 13, 0.78);
 
   /* ===== Borders ===== */
   --border-subtle: var(--slate-6);
@@ -162,4 +177,80 @@
   --gradient-card-hover: linear-gradient(180deg,
     var(--blue-3) 0%,
     transparent 100%);
+}
+
+/* ===== Light theme overrides ===== */
+/* Cuando `<html class="light">` está activo, las escalas Radix `slate`,
+   `blue`, `cyan`, etc. (sin -dark suffix) toman su versión light. Los
+   tokens semánticos abajo los re-mapean a las nuevas escalas para que
+   las superficies sean blancas / texto oscuro / etc. */
+.light, .light-theme {
+  /* Surfaces invertidas */
+  --bg-app: #ffffff;
+  --bg-elevated: var(--slate-2);
+  --bg-card: var(--slate-3);
+  --bg-card-hover: var(--slate-4);
+  --bg-muted: var(--slate-5);
+  --bg-overlay: rgba(15, 23, 42, 0.55);
+  --bg-header: rgba(255, 255, 255, 0.85);
+
+  /* Borders */
+  --border-subtle: var(--slate-6);
+  --border-default: var(--slate-7);
+  --border-hover: var(--slate-8);
+  --border-focus: var(--cyan-9);
+
+  /* Text — invertido (oscuro sobre claro) */
+  --text-primary: var(--slate-12);
+  --text-secondary: var(--slate-11);
+  --text-muted: var(--slate-10);
+  --text-disabled: var(--slate-8);
+
+  /* Brand — el blue-9/cyan-9 funciona en ambos modos */
+  --primary: var(--blue-9);
+  --primary-hover: var(--blue-10);
+  --primary-text: var(--blue-11);
+  --primary-soft: var(--blue-3);
+  --primary-soft-hover: var(--blue-4);
+  --primary-border: var(--blue-7);
+  --primary-on-solid: #ffffff;
+
+  --accent: var(--cyan-9);
+  --accent-hover: var(--cyan-10);
+  --accent-text: var(--cyan-11);
+  --accent-soft: var(--cyan-3);
+  --accent-border: var(--cyan-7);
+
+  /* Risk colors (las escalas light de Radix) */
+  --success: var(--grass-9);
+  --success-soft: var(--grass-3);
+  --success-text: var(--grass-11);
+  --success-border: var(--grass-7);
+
+  --warning: var(--amber-9);
+  --warning-soft: var(--amber-3);
+  --warning-text: var(--amber-11);
+  --warning-border: var(--amber-7);
+
+  --danger: var(--crimson-9);
+  --danger-soft: var(--crimson-3);
+  --danger-text: var(--crimson-11);
+  --danger-border: var(--crimson-7);
+
+  /* Shadows más suaves para light */
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.08);
+  --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.1);
+  --shadow-lg: 0 14px 32px rgba(15, 23, 42, 0.14);
+  --shadow-glow-primary:
+    0 0 0 1px var(--blue-7),
+    0 6px 20px rgba(30, 100, 220, 0.15);
+  --shadow-glow-accent:
+    0 0 0 1px var(--cyan-7),
+    0 6px 20px rgba(6, 182, 212, 0.15);
+
+  /* Gradient hero más sutil en light */
+  --gradient-hero: linear-gradient(180deg,
+    rgba(30, 100, 220, 0.06) 0%,
+    rgba(6, 182, 212, 0.03) 35%,
+    transparent 70%);
 }

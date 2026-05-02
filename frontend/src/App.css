@@ -39,7 +39,7 @@ p { line-height: var(--lh-normal); color: var(--text-primary); margin: 0 0 var(-
   justify-content: space-between;
   padding: var(--space-4) var(--space-6);
   border-bottom: 1px solid var(--border-subtle);
-  background: rgba(6, 8, 13, 0.78);
+  background: var(--bg-header);
   backdrop-filter: blur(12px) saturate(140%);
   -webkit-backdrop-filter: blur(12px) saturate(140%);
   position: sticky;
@@ -478,6 +478,30 @@ button.icon-button {
   justify-content: center;
 }
 button.icon-button:hover { color: var(--text-primary); background: var(--bg-card-hover); }
+
+button.theme-toggle {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 120ms ease, background 120ms ease, border-color 120ms ease;
+}
+button.theme-toggle:hover {
+  color: var(--accent-text);
+  background: var(--bg-card-hover);
+  border-color: var(--border-hover);
+}
+button.theme-toggle:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
 
 /* ===== Forms ===== */
 .checkout-form, .auth-card form {
