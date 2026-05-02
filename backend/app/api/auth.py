@@ -3,20 +3,25 @@
 Auth opcional para todo el resto de la API. El usuario puede comprar
 reportes anónimos (sin cuenta); si está logueado, los reportes se
 asocian a su user_id para historial.
-"""
 
-from __future__ import annotations
+Nota: NO usamos `from __future__ import annotations` aquí porque
+slowapi wrappa los endpoints con `@limiter.limit(...)` y eso rompe
+el forward-ref resolution de Pydantic v2 con FastAPI body params.
+Los tipos se evalúan eagerly y los Pydantic models están definidos
+en este mismo módulo.
+"""
 
 import logging
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from pydantic import BaseModel, EmailStr
 from sqlalchemy import case, desc, func, select, update
 
 from app.db.models import Payment, PaymentStatus, ReportRecord, User
 from app.db.session import SessionDep
+from app.rate_limit import limiter
 from app.services.auth import (
     build_magic_link_url,
     create_session_token,
@@ -112,8 +117,9 @@ async def get_current_user(
 
 
 @router.post("/auth/request-link", response_model=RequestLinkResponse)
+@limiter.limit("5/minute")
 async def request_link(
-    body: RequestLinkBody, session: SessionDep
+    request: Request, body: RequestLinkBody, session: SessionDep
 ) -> RequestLinkResponse:
     """Genera un magic link y lo envía al email. Idempotente — un
     request nuevo invalida el anterior."""
@@ -149,7 +155,10 @@ async def request_link(
 
 
 @router.post("/auth/verify", response_model=VerifyResponse)
-async def verify(body: VerifyBody, session: SessionDep) -> VerifyResponse:
+@limiter.limit("10/minute")
+async def verify(
+    request: Request, body: VerifyBody, session: SessionDep
+) -> VerifyResponse:
     """Valida el magic link, marca último login y emite JWT de sesión.
 
     ### Single-use atómico (MOD-002)

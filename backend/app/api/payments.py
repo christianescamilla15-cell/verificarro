@@ -16,8 +16,6 @@ Flow completo:
    si ya está generado.
 """
 
-from __future__ import annotations
-
 import hashlib
 import hmac
 import logging
@@ -32,6 +30,7 @@ from sqlalchemy import select
 from app.config import get_settings
 from app.db.models import Payment, PaymentStatus, ReportRecord, ReportStatus
 from app.db.session import SessionDep
+from app.rate_limit import limiter
 from app.services.mercadopago import (
     CheckoutPreference,
     PreapprovalResult,
@@ -109,7 +108,10 @@ class PaymentStatusResponse(BaseModel):
 
 
 @router.post("/payments/checkout", response_model=CheckoutResponse)
-async def checkout(req: CheckoutRequest, session: SessionDep) -> CheckoutResponse:
+@limiter.limit("10/minute")
+async def checkout(
+    request: Request, req: CheckoutRequest, session: SessionDep
+) -> CheckoutResponse:
     """Crea un Payment pending y la Preference de MP.
 
     Si `report_id` viene set, hidrata `plate`/`vin` desde ese preview
@@ -220,7 +222,10 @@ class SubscribeResponse(BaseModel):
 
 
 @router.post("/payments/subscribe", response_model=SubscribeResponse)
-async def subscribe(req: SubscribeRequest) -> SubscribeResponse:
+@limiter.limit("10/minute")
+async def subscribe(
+    request: Request, req: SubscribeRequest
+) -> SubscribeResponse:
     """Crea una suscripción mensual real con MP preapproval.
 
     Diferente a `/api/payments/checkout` (one-time payment): este crea
@@ -262,6 +267,7 @@ async def subscribe(req: SubscribeRequest) -> SubscribeResponse:
 
 
 @router.post("/payments/webhook")
+@limiter.limit("60/minute")
 async def webhook(
     request: Request,
     session: SessionDep,

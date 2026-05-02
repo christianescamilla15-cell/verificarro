@@ -1,7 +1,7 @@
 import logging
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
@@ -14,6 +14,7 @@ from app.models.report import (
     VinCheckRequest,
     VinDecodedModel,
 )
+from app.rate_limit import limiter
 from app.services.pdf_report import generate_pdf
 from app.services.pipeline import run_pipeline
 from app.services.vin_ocr import scan_vin_from_image
@@ -74,7 +75,8 @@ def _to_pydantic_vin_check(result) -> VinCheck:
 
 
 @router.post("/analyze", response_model=Report)
-async def analyze(req: AnalyzeRequest) -> Report:
+@limiter.limit("10/minute")
+async def analyze(request: Request, req: AnalyzeRequest) -> Report:
     try:
         return await run_pipeline(req)
     except ValueError as exc:
@@ -84,7 +86,8 @@ async def analyze(req: AnalyzeRequest) -> Report:
 
 
 @router.post("/vin/scan", response_model=VinScanResponse)
-async def scan_vin(body: VinScanBody) -> VinScanResponse:
+@limiter.limit("30/minute")
+async def scan_vin(request: Request, body: VinScanBody) -> VinScanResponse:
     """OCR de una foto del VIN del auto físico vía Claude visión.
 
     Flow del frontend:
@@ -139,7 +142,8 @@ async def check_vin(req: VinCheckRequest) -> VinCheck:
 
 
 @router.post("/analyze/pdf")
-async def analyze_to_pdf(report: Report) -> Response:
+@limiter.limit("10/minute")
+async def analyze_to_pdf(request: Request, report: Report) -> Response:
     """Convierte un `Report` JSON ya analizado a PDF descargable.
 
     El frontend llama primero a `/analyze` (JSON), muestra el reporte

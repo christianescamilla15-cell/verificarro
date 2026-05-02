@@ -20,18 +20,17 @@ muestra el aviso y el usuario igual puede seguir al pago — el unlock
 se queda con la opción de REPUVE manual a futuro.
 """
 
-from __future__ import annotations
-
 import hashlib
 import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
 from app.db.models import ReportRecord, ReportStatus
 from app.db.session import SessionDep
+from app.rate_limit import limiter
 from app.services.pipeline import run_preview_pipeline
 from app.services.smart_scanner import smart_scan
 
@@ -99,7 +98,10 @@ class SmartScanResponse(BaseModel):
 
 
 @router.post("/scan/auto", response_model=SmartScanResponse)
-async def scan_auto(body: PlateScanRequest) -> SmartScanResponse:
+@limiter.limit("30/minute")
+async def scan_auto(
+    request: Request, body: PlateScanRequest
+) -> SmartScanResponse:
     """Smart scanner — clasifica la imagen sin disparar el pipeline.
 
     El usuario apunta la cámara a CUALQUIER cosa relevante (placa, VIN
@@ -137,8 +139,9 @@ async def scan_auto(body: PlateScanRequest) -> SmartScanResponse:
 
 
 @router.post("/scan/plate", response_model=PlateScanResponse)
+@limiter.limit("30/minute")
 async def scan_plate(
-    body: PlateScanRequest, session: SessionDep
+    request: Request, body: PlateScanRequest, session: SessionDep
 ) -> PlateScanResponse:
     """Resuelve la placa, corre preview pipeline y persiste ReportRecord."""
     plate, vin, ocr_conf, ocr_notes, detected_type, invoice_extra = (
