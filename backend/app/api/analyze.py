@@ -39,14 +39,14 @@ class VinScanResponse(BaseModel):
 
 
 @router.post("/analyze", response_model=Report)
-@limiter.limit("10/minute")
+@limiter.limit("10/minute;100/hour")  # H-1: hourly cap reduce drain Anthropic
 async def analyze(request: Request, req: AnalyzeRequest) -> Report:
     # MOD-018: ValueError → 400 vía global handler en main.py.
     return await run_pipeline(req)
 
 
 @router.post("/vin/scan", response_model=VinScanResponse)
-@limiter.limit("30/minute")
+@limiter.limit("30/minute;200/hour")  # H-1: hourly cap reduce drain Anthropic
 async def scan_vin(request: Request, body: VinScanBody) -> VinScanResponse:
     """OCR de una foto del VIN del auto físico vía Claude visión.
 
@@ -78,7 +78,8 @@ async def scan_vin(request: Request, body: VinScanBody) -> VinScanResponse:
 
 
 @router.post("/vin/check", response_model=VinCheck)
-async def check_vin(req: VinCheckRequest) -> VinCheck:
+@limiter.limit("30/minute")
+async def check_vin(request: Request, req: VinCheckRequest) -> VinCheck:
     """Decodifica un VIN escaneado y lo compara contra el anuncio.
 
     Usado por el frontend cuando el usuario escanea el VIN del auto

@@ -99,7 +99,7 @@ class SmartScanResponse(BaseModel):
 
 
 @router.post("/scan/auto", response_model=SmartScanResponse)
-@limiter.limit("30/minute")
+@limiter.limit("30/minute;200/hour")  # H-1: hourly cap reduce drain Anthropic
 async def scan_auto(
     request: Request, body: PlateScanRequest
 ) -> SmartScanResponse:
@@ -140,7 +140,7 @@ async def scan_auto(
 
 
 @router.post("/scan/plate", response_model=PlateScanResponse)
-@limiter.limit("30/minute")
+@limiter.limit("30/minute;200/hour")  # H-1: hourly cap reduce drain Anthropic
 async def scan_plate(
     request: Request, body: PlateScanRequest, session: SessionDep
 ) -> PlateScanResponse:

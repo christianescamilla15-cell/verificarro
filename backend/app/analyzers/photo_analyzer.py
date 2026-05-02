@@ -114,13 +114,33 @@ async def analyze_photos(
     Cada foto se procesa con Claude visión y devuelve 0+ `PhotoFinding`. El
     `photo_index` se sincroniza al orden de entrada para que el reporte
     pueda enlazar el hallazgo con la foto correspondiente.
+
+    ### M-8 SSRF allowlist
+
+    Las URLs se pasan directo al SDK de Anthropic (Anthropic hace el fetch),
+    así que el SSRF clásico (acceso a 169.254.169.254 desde nuestro server)
+    no aplica. PERO si `manual_listing.photo_urls` viene de user input,
+    podríamos ser proxy oracle hacia hosts internos (e.g., un atacante
+    apunta una URL pública a su CNAME hacia un endpoint privado de su
+    target, y observa lo que Anthropic les responde). Filtramos con el
+    mismo `_check_url_safe` de `photo_fetcher` antes de mandar a Claude.
     """
     settings = get_settings()
     if not settings.anthropic_api_key:
         logger.warning("ANTHROPIC_API_KEY ausente — skip análisis de fotos")
         return []
 
-    photos = list(photo_urls[:max_photos])
+    # M-8: filtrar URLs por allowlist SSRF antes de mandar a Anthropic.
+    from app.services.photo_fetcher import _check_url_safe
+    safe_urls: list[str] = []
+    for u in photo_urls[:max_photos]:
+        ok, reason = _check_url_safe(u)
+        if ok:
+            safe_urls.append(u)
+        else:
+            logger.warning("Foto rechazada (%s) en photo_analyzer: %s", reason, u)
+
+    photos = safe_urls
     if not photos:
         return []
 

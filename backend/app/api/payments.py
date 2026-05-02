@@ -32,6 +32,7 @@ from app.config import Settings, get_settings
 from app.db.models import Payment, PaymentStatus, ReportRecord, ReportStatus, User
 from app.db.session import SessionDep
 from app.rate_limit import limiter
+from app.services.email import mask_email
 from app.services.mercadopago import (
     CheckoutPreference,
     PreapprovalResult,
@@ -308,7 +309,8 @@ async def subscribe(
     logger.info(
         "[SUBSCRIBE-CREATED] preapproval=%s payment=%s tier=%s email=%s "
         "amount=%s — esperando webhook preapproval para activar",
-        result.preapproval_id, payment.id, req.tier, req.payer_email, amount,
+        result.preapproval_id, payment.id, req.tier,
+        mask_email(req.payer_email), amount,
     )
 
     return SubscribeResponse(
@@ -408,6 +410,22 @@ async def webhook(
     if new_status == payment.status:
         return {"ok": True, "ignored": "idempotent-duplicate"}
 
+    # M-3: amount verification antes de aceptar PAID. Si el `transaction_amount`
+    # que MP reporta NO coincide con lo que cobramos en checkout, alguien creó
+    # una preferencia barata con nuestro `external_reference` para desbloquear
+    # un reporte caro. Tolerancia 0.01 para evitar floating-point edge cases.
+    if (
+        new_status == PaymentStatus.PAID
+        and info.transaction_amount is not None
+        and abs(info.transaction_amount - payment.amount_mxn) > 0.01
+    ):
+        logger.warning(
+            "Payment %s rechazado por amount mismatch: esperado=%s "
+            "MP-reportado=%s — posible intento de fraude",
+            payment.id, payment.amount_mxn, info.transaction_amount,
+        )
+        return {"ok": True, "ignored": "amount-mismatch"}
+
     payment.status = new_status
     payment.mp_payment_id = info.payment_id
     if new_status == PaymentStatus.PAID:
@@ -488,7 +506,8 @@ async def _handle_preapproval_webhook(
         logger.info(
             "[PREAPPROVAL-AUTHORIZED] payment=%s tier=%s email=%s "
             "amount=%s — plan activo, mandar credenciales por email",
-            payment.id, payment.tier, payment.payer_email, payment.amount_mxn,
+            payment.id, payment.tier,
+            mask_email(payment.payer_email), payment.amount_mxn,
         )
         # TODO: agregar background task para mandar email de bienvenida
         # con instrucciones de uso del plan. Por ahora el log es señal
@@ -523,7 +542,9 @@ async def _payment_has_preview(session, payment_id: str) -> bool:
 @router.get(
     "/payments/{external_reference}", response_model=PaymentStatusResponse
 )
+@limiter.limit("60/minute")
 async def payment_status(
+    request: Request,
     external_reference: str,
     session: SessionDep,
     token: str | None = None,
@@ -633,12 +654,22 @@ def _map_mp_status(mp_status: str) -> PaymentStatus:
     return PaymentStatus.PENDING
 
 
+_WEBHOOK_REPLAY_WINDOW_SEC = 600  # 10 min — MP redelivers up to 5 min
+
+
 def _verify_mp_signature(request: Request, mp_payment_id: Any) -> bool:
     """Valida `x-signature` HMAC-SHA256 contra el manifest oficial de MP.
 
     Header format: `x-signature: ts=<ts>,v1=<hex_hmac>`
     Manifest: `id:<data.id>;request-id:<x-request-id>;ts:<ts>;`
         (los segmentos opcionales se omiten si su valor es vacío)
+
+    ### Replay window (M-2)
+
+    Verificamos `abs(now - ts) < 600s`. MP redelivers webhooks dentro
+    de ~5 min, así que 10 min cubre el caso legítimo. Sin esta ventana
+    una firma capturada se replea ad infinitum (la idempotencia por
+    `external_reference` mitiga el efecto pero no la admision).
 
     Si `MP_WEBHOOK_SECRET` está vacío, NO validamos (modo dev/MVP) y
     devolvemos True con un warning. Cuando se setee el secret en Render
@@ -670,6 +701,23 @@ def _verify_mp_signature(request: Request, mp_payment_id: Any) -> bool:
     v1 = parts.get("v1")
     if not ts or not v1:
         logger.warning("Webhook MP signature malformada: %s", sig_header)
+        return False
+
+    # M-2: replay-window check ANTES de calcular HMAC (evita timing leak
+    # via ts dispatch). MP usa ms-since-epoch; aceptamos también seconds
+    # para tests con timestamps naïves.
+    try:
+        ts_int = int(ts)
+        ts_seconds = ts_int / 1000 if ts_int > 10**12 else ts_int
+        now_seconds = datetime.now(UTC).timestamp()
+        if abs(now_seconds - ts_seconds) > _WEBHOOK_REPLAY_WINDOW_SEC:
+            logger.warning(
+                "Webhook MP fuera de ventana replay — ts=%s now=%s diff=%.0fs",
+                ts, int(now_seconds), abs(now_seconds - ts_seconds),
+            )
+            return False
+    except (ValueError, TypeError):
+        logger.warning("Webhook MP ts no numérico: %s", ts)
         return False
 
     request_id = request.headers.get("x-request-id", "")

@@ -19,6 +19,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from pydantic import BaseModel, EmailStr
 from sqlalchemy import case, desc, func, select, update
 
+from app.config import get_settings
 from app.db.models import Payment, PaymentStatus, ReportRecord, User
 from app.db.session import SessionDep
 from app.rate_limit import limiter
@@ -29,7 +30,7 @@ from app.services.auth import (
     generate_magic_link,
     verify_magic_link,
 )
-from app.services.email import send_magic_link_email
+from app.services.email import mask_email, send_magic_link_email
 
 # Reportes incluidos por mes en cada tier suscripcional. Hard-coded (no
 # config) porque el cap es identidad del tier, no precio. Si en algún
@@ -116,13 +117,32 @@ async def get_current_user(
 # Endpoints
 
 
+_MAGIC_LINK_RESEND_COOLDOWN_SEC = 60
+
+
 @router.post("/auth/request-link", response_model=RequestLinkResponse)
 @limiter.limit("5/minute")
 async def request_link(
     request: Request, body: RequestLinkBody, session: SessionDep
 ) -> RequestLinkResponse:
     """Genera un magic link y lo envía al email. Idempotente — un
-    request nuevo invalida el anterior."""
+    request nuevo invalida el anterior.
+
+    ### H-4 mitigation — user enumeration + email bombing
+
+    Antes (request por email desconocido) la response era idéntica pero:
+    - Crear User row es DB write observable (timing + state pollution).
+    - Sin cooldown por-email, un atacante con 5 IPs rotando podía
+      email-bombardear a la víctima a 25 magic-links/min.
+
+    Ahora:
+    - Si el email ya tiene un magic link vigente emitido en los últimos
+      `_MAGIC_LINK_RESEND_COOLDOWN_SEC` segundos, retornamos la misma
+      response sin re-emitir ni re-enviar email. El link previo sigue
+      siendo válido durante su TTL.
+    - El INSERT del User row sigue ocurriendo, pero el cooldown limita
+      el daño realista a 1 nuevo magic-link por email por minuto.
+    """
     email = body.email.lower().strip()
 
     result = await session.execute(select(User).where(User.email == email))
@@ -131,6 +151,27 @@ async def request_link(
         user = User(email=email)
         session.add(user)
         await session.flush()
+    elif user.magic_link_expires_at is not None:
+        # H-4: cooldown — si el magic-link previo es muy reciente,
+        # devuelve la misma response sin re-enviar email (el link viejo
+        # sigue funcionando durante su TTL).
+        expires_at = _ensure_aware(user.magic_link_expires_at)
+        ttl_remaining = (expires_at - datetime.now(UTC)).total_seconds()
+        ttl_full = timedelta(
+            minutes=get_settings().magic_link_ttl_minutes
+        ).total_seconds()
+        seconds_since_issued = ttl_full - ttl_remaining
+        if 0 <= seconds_since_issued < _MAGIC_LINK_RESEND_COOLDOWN_SEC:
+            logger.info(
+                "Magic-link resend cooldown for %s (%.0fs since issued)",
+                mask_email(email), seconds_since_issued,
+            )
+            return RequestLinkResponse(
+                message=(
+                    f"Te mandamos un link a {email}. Da clic dentro de los "
+                    "próximos minutos. Si no llega, revisa spam."
+                )
+            )
 
     link = generate_magic_link()
     user.magic_link_hash = link["token_hash"]
@@ -140,7 +181,7 @@ async def request_link(
     try:
         await send_magic_link_email(email, url)
     except RuntimeError as exc:
-        logger.warning("Email send failed for %s: %s", email, exc)
+        logger.warning("Email send failed for %s: %s", mask_email(email), exc)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="No pude enviar el email. Intenta de nuevo.",
@@ -235,7 +276,7 @@ async def logout(
     """Logout — el cliente debe descartar el JWT. Como los JWT son
     stateless, no hay invalidación server-side en MVP. (En v2:
     blacklist con TTL == JWT exp para invalidación instant.)"""
-    logger.info("User %s logged out", user.email)
+    logger.info("User %s logged out", mask_email(user.email))
     return {"message": "Sesión cerrada. Descarta el token del cliente."}
 
 

@@ -1,10 +1,11 @@
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from app import __version__
 from app.api import analyze, auth, health, payments, scan
@@ -121,6 +122,39 @@ def _rate_limit_handler(request, exc):  # noqa: ARG001
     )
 
 
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """M-9: agrega headers de seguridad a TODAS las responses.
+
+    - `Strict-Transport-Security`: fuerza HTTPS por 1 año (con preload).
+      Solo en production — en dev (HTTP local) es no-op innocuo.
+    - `X-Content-Type-Options: nosniff`: bloquea MIME type sniffing.
+    - `X-Frame-Options: DENY`: bloquea clickjacking via iframe.
+    - `Referrer-Policy`: solo manda origin (no path) cross-origin.
+
+    No agregamos CSP aquí — esta es una API JSON, no sirve HTML
+    interpretable por browsers. El CSP del frontend vive en
+    `frontend/vercel.json`.
+    """
+
+    def __init__(self, app, *, is_production: bool):
+        super().__init__(app)
+        self._is_production = is_production
+
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault(
+            "Referrer-Policy", "strict-origin-when-cross-origin"
+        )
+        if self._is_production:
+            response.headers.setdefault(
+                "Strict-Transport-Security",
+                "max-age=31536000; includeSubDomains",
+            )
+        return response
+
+
 def _value_error_handler(request, exc: ValueError):  # noqa: ARG001
     """Global handler de ValueError → 400 con shape estándar (MOD-018).
 
@@ -170,6 +204,12 @@ def create_app() -> FastAPI:
         allow_credentials=True,
         allow_methods=["GET", "POST"],
         allow_headers=["*"],
+    )
+
+    # M-9: security headers (HSTS solo en production)
+    app.add_middleware(
+        SecurityHeadersMiddleware,
+        is_production=settings.is_production,
     )
 
     app.include_router(health.router)

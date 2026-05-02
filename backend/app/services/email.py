@@ -22,6 +22,29 @@ from app.config import get_settings
 logger = logging.getLogger(__name__)
 
 
+def mask_email(email: str | None) -> str:
+    """Enmascara un email para logs (LFPDPPP / H-2).
+
+    `christian@gmail.com` → `chr***@gmail.com`
+    `a@b.mx` → `a***@b.mx`  (1-char local stays as-is)
+    `None` / `""` → `<empty>`
+    `no-at-sign` → `***`
+
+    El log retention de Render + búsqueda searchable convierten emails
+    en datos personales recuperables. Esta máscara conserva enough
+    info para troubleshooting (qué dominio, prefix recognizable) sin
+    exponer la dirección completa.
+    """
+    if not email:
+        return "<empty>"
+    if "@" not in email:
+        return "***"
+    local, _, domain = email.partition("@")
+    if len(local) <= 1:
+        return f"{local}***@{domain}"
+    return f"{local[:3]}***@{domain}"
+
+
 async def send_magic_link_email(to_email: str, magic_link_url: str) -> None:
     """Manda el email con el magic link. En dev (sin SMTP_HOST) imprime."""
     settings = get_settings()
@@ -41,7 +64,10 @@ async def send_magic_link_email(to_email: str, magic_link_url: str) -> None:
             + "=" * 70 + "\n",
             flush=True,
         )
-        logger.info("Magic link generated for %s (SMTP not configured)", to_email)
+        logger.info(
+            "Magic link generated for %s (SMTP not configured)",
+            mask_email(to_email),
+        )
         return
 
     # Producción — SMTP real
@@ -61,11 +87,11 @@ async def send_magic_link_email(to_email: str, magic_link_url: str) -> None:
 
     try:
         await asyncio.to_thread(_send_sync)
-        logger.info("Magic link sent to %s", to_email)
+        logger.info("Magic link sent to %s", mask_email(to_email))
     except (smtplib.SMTPException, OSError) as exc:
         # SMTPException cubre: auth fail, recipient refused, server disconnect.
         # OSError cubre: DNS resolución, timeout, connection refused.
-        logger.exception("SMTP send failed for %s", to_email)
+        logger.exception("SMTP send failed for %s", mask_email(to_email))
         raise RuntimeError(f"No pude enviar el email: {exc}") from exc
 
 
@@ -151,7 +177,7 @@ async def send_report_email(
         )
         logger.info(
             "Report email stubbed for %s (SMTP not configured, %d bytes PDF)",
-            to_email, len(pdf_bytes),
+            mask_email(to_email), len(pdf_bytes),
         )
         return
 
@@ -180,12 +206,14 @@ async def send_report_email(
         await asyncio.to_thread(_send_sync)
         logger.info(
             "Report email sent to %s (%d bytes PDF, report_id=%s)",
-            to_email, len(pdf_bytes), report_id,
+            mask_email(to_email), len(pdf_bytes), report_id,
         )
     except (smtplib.SMTPException, OSError) as exc:
         # No re-raise — email es bonus, no bloqueante para unlock.
         # Cubre auth/recipient/disconnect (SMTP) + network (OSError).
-        logger.warning("Report email failed for %s: %s", to_email, exc)
+        logger.warning(
+            "Report email failed for %s: %s", mask_email(to_email), exc,
+        )
 
 
 def _render_report_html(

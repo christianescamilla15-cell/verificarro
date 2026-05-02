@@ -250,10 +250,22 @@ def test_webhook_idempotent_duplicate_does_nothing(client, db_factory) -> None:
 #   - secret set + manifest manipulado (id distinto) → 401
 
 
-def _hmac_signature(secret: str, payment_id: str, ts: str, request_id: str = "") -> str:
-    """Genera el header x-signature como lo haría MP."""
+def _now_ts() -> str:
+    """Timestamp actual (epoch seconds) — usado para que los tests
+    pasen el replay-window check de 600s en _verify_mp_signature (M-2)."""
+    from datetime import UTC, datetime
+    return str(int(datetime.now(UTC).timestamp()))
+
+
+def _hmac_signature(
+    secret: str, payment_id: str, ts: str | None = None, request_id: str = "",
+) -> str:
+    """Genera el header x-signature como lo haría MP. Si `ts` no se
+    provee, usa el actual (para pasar replay-window check)."""
     import hashlib
     import hmac as _hmac
+    if ts is None:
+        ts = _now_ts()
     segments = []
     if payment_id:
         segments.append(f"id:{payment_id};")
@@ -291,8 +303,7 @@ def test_webhook_with_secret_valid_signature_accepted(client, db_factory) -> Non
     _seed_payment(db_factory, external_ref)
     secret = "test-secret-abc-123"
     payment_id = "mp-pay-valid"
-    ts = "1700000000"
-    sig_header = _hmac_signature(secret, payment_id, ts)
+    sig_header = _hmac_signature(secret, payment_id)  # ts=now
 
     info = MpPaymentInfo(
         payment_id=payment_id, status="approved", status_detail="ok",
@@ -338,7 +349,29 @@ def test_webhook_with_secret_invalid_signature_returns_401(client) -> None:
         res = client.post(
             "/api/payments/webhook",
             json={"type": "payment", "data": {"id": "mp-pay-x"}},
-            headers={"x-signature": "ts=1700000000,v1=garbage_sig"},
+            headers={"x-signature": f"ts={_now_ts()},v1=garbage_sig"},
+        )
+    assert res.status_code == 401
+
+
+def test_webhook_replay_window_rejects_old_signature(client) -> None:
+    """M-2: una firma válida pero con `ts` fuera de la ventana de 10 min
+    debe rechazarse con 401. Sin esto, un atacante con una firma vieja
+    (capturada de logs, MITM, etc.) podría replearla ad infinitum."""
+    secret = "replay-window-secret"
+    payment_id = "mp-pay-replay"
+    old_ts = "1700000000"  # Nov 2023, way fuera de la ventana
+    sig_header = _hmac_signature(secret, payment_id, ts=old_ts)
+    fake_settings = type("S", (), {
+        "mp_webhook_secret": secret,
+        "price_basic_mxn": 49.0, "price_premium_mxn": 99.0,
+        "price_search_mxn": 199.0, "price_dealer_mxn": 1499.0,
+    })()
+    with patch("app.api.payments.get_settings", return_value=fake_settings):
+        res = client.post(
+            "/api/payments/webhook",
+            json={"type": "payment", "data": {"id": payment_id}},
+            headers={"x-signature": sig_header},
         )
     assert res.status_code == 401
 
@@ -348,7 +381,7 @@ def test_webhook_with_secret_tampered_payment_id_returns_401(client) -> None:
     Esto previene replay attack donde alguien firma para id X pero
     cambia el body a id Y."""
     secret = "test-secret"
-    sig_header = _hmac_signature(secret, "mp-pay-aaa", "1700000000")
+    sig_header = _hmac_signature(secret, "mp-pay-aaa")  # ts=now
     fake_settings = type("S", (), {
         "mp_webhook_secret": secret,
         "price_basic_mxn": 49.0, "price_premium_mxn": 99.0,
