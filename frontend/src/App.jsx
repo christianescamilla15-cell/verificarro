@@ -21,6 +21,8 @@ const Dashboard = lazy(() => import('./pages/Dashboard.jsx'))
 const Login = lazy(() => import('./pages/Login.jsx'))
 const Pricing = lazy(() => import('./pages/Pricing.jsx'))
 const PreviewReport = lazy(() => import('./pages/PreviewReport.jsx'))
+const Privacidad = lazy(() => import('./pages/Privacidad.jsx'))
+const Terminos = lazy(() => import('./pages/Terminos.jsx'))
 
 
 function RouteFallback() {
@@ -48,6 +50,8 @@ export default function App() {
           <Route path="/checkout/success" element={<CheckoutSuccess />} />
           <Route path="/checkout/failure" element={<CheckoutFailure />} />
           <Route path="/checkout/pending" element={<CheckoutPending />} />
+          <Route path="/privacidad" element={<Privacidad />} />
+          <Route path="/terminos" element={<Terminos />} />
         </Routes>
       </Suspense>
       <WhatsAppButton variant="floating" />

@@ -172,6 +172,13 @@ class Settings(BaseSettings):
     )
     smtp_from_name: str = Field(default="Verificarro", alias="SMTP_FROM_NAME")
 
+    # --- PII encryption (MOD-032) ---
+    # Fernet key (32-byte url-safe base64) para encriptar PII en DB
+    # (Payment.payer_email, plate, vin). Si vacío en dev, fallback
+    # determinístico desde JWT_SECRET (NOT for production — la primera
+    # rotación de JWT_SECRET invalidaría toda la PII histórica).
+    fernet_key: str = Field(default="", alias="FERNET_KEY")
+
     # --- Sentry (MOD-010) ---
     # DSN del proyecto FastAPI en sentry.io. Vacío en dev = no se reportan
     # errores. En prod, set en Render env vars.

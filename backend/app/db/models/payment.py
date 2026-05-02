@@ -18,6 +18,7 @@ from sqlalchemy import DateTime, Enum, Float, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, TimestampMixin
+from app.db.types import EncryptedString
 
 
 class PaymentStatus(str, enum.Enum):
@@ -58,8 +59,11 @@ class Payment(Base, TimestampMixin):
 
     # Datos del listing que se va a analizar (snapshot del momento del checkout)
     listing_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
-    plate: Mapped[str | None] = mapped_column(String(16), nullable=True)
-    vin: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    # MOD-032: PII encriptada at-rest con Fernet. Length 200 cubre el
+    # plaintext típico (16 chars plate / 24 VIN / 100 char emails)
+    # con el overhead de Fernet (~4× plaintext: IV + HMAC + base64).
+    plate: Mapped[str | None] = mapped_column(EncryptedString(200), nullable=True)
+    vin: Mapped[str | None] = mapped_column(EncryptedString(200), nullable=True)
     # Número de factura del auto (folio o UUID CFDI). Opcional al checkout.
     # Si se provee, el reporte incluye instrucciones explícitas para que el
     # comprador pida ver la factura física con ese folio. Fase B agregará
@@ -67,10 +71,10 @@ class Payment(Base, TimestampMixin):
     invoice_number: Mapped[str | None] = mapped_column(
         String(64), nullable=True
     )
-    # Email del comprador (declarado al checkout). Cuando el unlock
-    # termina, le mandamos el reporte+PDF a este email vía send_report_email.
+    # Email del comprador — encriptado at-rest. Si Postgres se filtra,
+    # los emails NO quedan expuestos.
     payer_email: Mapped[str | None] = mapped_column(
-        String(255), nullable=True
+        EncryptedString(500), nullable=True
     )
 
     paid_at: Mapped[datetime | None] = mapped_column(

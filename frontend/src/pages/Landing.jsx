@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import {
   ScanLine, ShieldCheck, Zap, Lock, Camera, Eye, FileText,
   Copy, TrendingUp, ImageOff, AlertTriangle, CheckCircle2,
@@ -336,6 +336,11 @@ export default function Landing() {
         </p>
         <p className="muted small">
           Reportes informativos, no sustituyen revisión mecánica profesional.
+        </p>
+        <p className="footer-links">
+          <Link to="/privacidad">Aviso de Privacidad</Link>
+          {' · '}
+          <Link to="/terminos">Términos y Condiciones</Link>
         </p>
       </footer>
 

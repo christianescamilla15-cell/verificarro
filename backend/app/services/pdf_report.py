@@ -538,11 +538,29 @@ def _questions_block(report: Report, styles: dict) -> list:
 
 
 def _footer(styles: dict) -> list:
+    # MOD-031: disclaimer expandido en el footer del PDF. Cumple
+    # limitación de responsabilidad de los Términos y Condiciones —
+    # cada reporte impreso/descargado tiene el disclaimer explícito,
+    # no solo en la página web. Reduce riesgo de reclamos por
+    # "información incorrecta".
     return [
         Spacer(1, 18),
         Paragraph(
-            "Verificarro v0.2 · Reporte informativo, no sustituye revisión "
-            "mecánica profesional · Hecho en México · verificarro.mx",
+            "<b>Importante</b>: Verificarro proporciona información de "
+            "fuentes públicas (REPUVE, NHTSA, SAT) y análisis del anuncio. "
+            "NO garantizamos exactitud absoluta — REPUVE puede estar "
+            "desactualizado, fotos pueden ser modificadas, descripciones "
+            "del vendedor pueden tener errores. La decisión de compra y "
+            "el riesgo de la transacción son responsabilidad del usuario. "
+            "Recomendamos verificar en persona y con un mecánico de "
+            "confianza antes de pagar.",
+            styles["footer"],
+        ),
+        Spacer(1, 8),
+        Paragraph(
+            "Verificarro v0.2 · Hecho en México · verificarro.mx · "
+            "Términos y Aviso de Privacidad en verificarro.mx/terminos "
+            "y verificarro.mx/privacidad",
             styles["footer"],
         ),
     ]

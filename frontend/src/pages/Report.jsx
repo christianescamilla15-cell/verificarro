@@ -35,6 +35,22 @@ export default function ReportView({ reportData }) {
       <ScoreChip score={r.score} risk={r.risk_level} />
       <p className="report-summary">{r.summary}</p>
 
+      {/* MOD-031: disclaimer prominente en cada reporte. Cumple
+          requisitos de Términos y Condiciones (limitación de
+          responsabilidad) y reduce riesgo de reclamos por
+          "información incorrecta". */}
+      <aside className="report-disclaimer" role="note">
+        <strong>Importante</strong>: Verificarro proporciona
+        información de fuentes públicas (REPUVE, NHTSA, SAT) y análisis
+        del anuncio. NO garantizamos exactitud absoluta — REPUVE puede
+        estar desactualizado, fotos pueden ser modificadas, descripciones
+        pueden tener errores. La decisión de compra y el riesgo de la
+        transacción son responsabilidad del usuario. Recomendamos
+        siempre verificar el auto en persona y con un mecánico de
+        confianza antes de pagar. Ver{' '}
+        <a href="/terminos" target="_blank" rel="noreferrer">Términos y Condiciones</a>.
+      </aside>
+
       <div className="report-actions">
         <button onClick={handleDownload} disabled={downloading} className="primary">
           {downloading ? 'Generando…' : '📄 Descargar PDF'}

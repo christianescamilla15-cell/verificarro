@@ -65,6 +65,14 @@ export default function PreviewReport() {
       <ScoreChip score={data.score} risk={data.risk_level} />
       <p className="report-summary">{data.summary}</p>
 
+      {/* MOD-031: disclaimer prominente */}
+      <aside className="report-disclaimer" role="note">
+        <strong>Preview informativo</strong> — Verificarro consulta
+        fuentes públicas (REPUVE, NHTSA, SAT) y analiza datos del
+        anuncio. La decisión y riesgo de compra son del usuario. Ver{' '}
+        <a href="/terminos" target="_blank" rel="noreferrer">Términos</a>.
+      </aside>
+
       {/* CTA HERO: cuando captcha falló, los links manuales son la salida.
           REPUVE oficial NO permite pre-llenar placa via query (Angular SPA),
           por eso le decimos al usuario que copie su placa y resuelva captcha
