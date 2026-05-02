@@ -27,8 +27,9 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request,
 from pydantic import BaseModel, Field, HttpUrl
 from sqlalchemy import select
 
+from app.api.auth import get_optional_user
 from app.config import Settings, get_settings
-from app.db.models import Payment, PaymentStatus, ReportRecord, ReportStatus
+from app.db.models import Payment, PaymentStatus, ReportRecord, ReportStatus, User
 from app.db.session import SessionDep
 from app.rate_limit import limiter
 from app.services.mercadopago import (
@@ -119,11 +120,22 @@ async def checkout(
     req: CheckoutRequest,
     session: SessionDep,
     settings: SettingsDep,
+    current_user: Annotated[User | None, Depends(get_optional_user)] = None,
 ) -> CheckoutResponse:
     """Crea un Payment pending y la Preference de MP.
 
     Si `report_id` viene set, hidrata `plate`/`vin` desde ese preview
     Report y enlaza Payment ↔ Report (bidireccional).
+
+    ### Auth (defense-in-depth)
+
+    Endpoint **anónimo by-design** para preservar el funnel scan-first
+    (un usuario nuevo no debe tener que registrarse antes de pagar su
+    primer reporte). Si el caller manda Bearer JWT válido, persistimos
+    `user_id` en la fila Payment para que aparezca después en su
+    /dashboard. Sin token, el Payment queda huérfano hasta que el user
+    se registre con el mismo email (matching por email es trabajo
+    futuro — ver MOD-038).
     """
     amount = _amount_for_tier(req.tier, settings)
     external_ref = str(uuid.uuid4())
@@ -157,6 +169,7 @@ async def checkout(
     )
 
     payment = Payment(
+        user_id=current_user.id if current_user else None,
         amount_mxn=amount,
         tier=req.tier,
         status=PaymentStatus.PENDING,
@@ -238,6 +251,7 @@ async def subscribe(
     req: SubscribeRequest,
     session: SessionDep,
     settings: SettingsDep,
+    current_user: Annotated[User | None, Depends(get_optional_user)] = None,
 ) -> SubscribeResponse:
     """Crea una suscripción mensual real con MP preapproval.
 
@@ -276,7 +290,10 @@ async def subscribe(
     # MOD-013: persistir Payment para que el webhook de preapproval pueda
     # encontrarlo por external_reference y actualizarlo cuando MP
     # autorice / pause / cancele.
+    # MOD-038: si hay JWT, asociamos user_id para que la subscripción
+    # aparezca en /dashboard. Sin JWT, queda huérfano (igual que checkout).
     payment = Payment(
+        user_id=current_user.id if current_user else None,
         amount_mxn=amount,
         tier=req.tier,
         status=PaymentStatus.PENDING,

@@ -53,6 +53,63 @@
 @import "@radix-ui/colors/crimson-dark.css";
 @import "@radix-ui/colors/amber-dark.css";
 
+/* Tokens invariantes al tema (spacing, radii, typography, gradients).
+   Viven en :root porque NO cambian entre dark/light — moverlos al
+   bloque .dark provocaba que en modo claro las fuentes/spacing
+   colapsaran a defaults del browser ("texto en plano"). */
+:root {
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+  --space-20: 5rem;
+  --space-24: 6rem;
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-2xl: 24px;
+  --radius-full: 9999px;
+
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-display: "Inter", "Inter Display", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --fs-xs: 0.75rem;
+  --fs-sm: 0.875rem;
+  --fs-base: 1rem;
+  --fs-md: 1.0625rem;
+  --fs-lg: 1.25rem;
+  --fs-xl: 1.5rem;
+  --fs-2xl: 2rem;
+  --fs-3xl: 2.5rem;
+  --fs-4xl: 3.25rem;
+  --fs-5xl: 4rem;
+
+  --lh-tight: 1.1;
+  --lh-snug: 1.3;
+  --lh-normal: 1.55;
+
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+  --fw-bold: 700;
+  --fw-extrabold: 800;
+
+  --gradient-brand: linear-gradient(135deg, var(--blue-9), var(--cyan-9));
+  --gradient-card-hover: linear-gradient(180deg,
+    var(--blue-3) 0%,
+    transparent 100%);
+}
+
 .dark, .dark-theme {
   /* ===== Surfaces (slate cool, lean azul oscuro) ===== */
   --bg-app: #06080d;                   /* extra deep, casi negro azul */
@@ -107,29 +164,7 @@
   --danger-text: var(--crimson-11);
   --danger-border: var(--crimson-7);
 
-  /* ===== Spacing scale ===== */
-  --space-1: 0.25rem;
-  --space-2: 0.5rem;
-  --space-3: 0.75rem;
-  --space-4: 1rem;
-  --space-5: 1.25rem;
-  --space-6: 1.5rem;
-  --space-8: 2rem;
-  --space-10: 2.5rem;
-  --space-12: 3rem;
-  --space-16: 4rem;
-  --space-20: 5rem;
-  --space-24: 6rem;
-
-  /* ===== Radii ===== */
-  --radius-sm: 4px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
-  --radius-xl: 16px;
-  --radius-2xl: 24px;
-  --radius-full: 9999px;
-
-  /* ===== Shadows ===== */
+  /* ===== Shadows (variante dark, más intensa) ===== */
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5);
   --shadow-md: 0 4px 14px rgba(0, 0, 0, 0.55);
   --shadow-lg: 0 14px 40px rgba(0, 0, 0, 0.65);
@@ -141,42 +176,12 @@
     0 0 0 1px var(--cyan-7),
     0 8px 24px rgba(6, 182, 212, 0.25);
 
-  /* ===== Typography ===== */
-  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
-    Roboto, "Helvetica Neue", Arial, sans-serif;
-  --font-display: "Inter", "Inter Display", sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-
-  --fs-xs: 0.75rem;
-  --fs-sm: 0.875rem;
-  --fs-base: 1rem;
-  --fs-md: 1.0625rem;
-  --fs-lg: 1.25rem;
-  --fs-xl: 1.5rem;
-  --fs-2xl: 2rem;
-  --fs-3xl: 2.5rem;
-  --fs-4xl: 3.25rem;
-  --fs-5xl: 4rem;
-
-  --lh-tight: 1.1;
-  --lh-snug: 1.3;
-  --lh-normal: 1.55;
-
-  --fw-regular: 400;
-  --fw-medium: 500;
-  --fw-semibold: 600;
-  --fw-bold: 700;
-  --fw-extrabold: 800;
-
-  /* ===== Gradients (reusable) ===== */
-  --gradient-brand: linear-gradient(135deg, var(--blue-9), var(--cyan-9));
+  /* Hero gradient — variante dark (más intensa).
+     Spacing/radii/typography/gradient-brand viven en :root arriba. */
   --gradient-hero: linear-gradient(180deg,
     rgba(30, 100, 220, 0.08) 0%,
     rgba(6, 182, 212, 0.04) 35%,
     transparent 70%);
-  --gradient-card-hover: linear-gradient(180deg,
-    var(--blue-3) 0%,
-    transparent 100%);
 }
 
 /* ===== Light theme overrides ===== */

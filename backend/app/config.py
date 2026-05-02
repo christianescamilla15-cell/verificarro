@@ -1,7 +1,14 @@
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+# H-3: el default placeholder de JWT_SECRET. Si Render boots con este
+# valor literal en producción, todos los JWTs son forge-ables. Lo
+# centralizamos como constante para que el validator de abajo pueda
+# rechazarlo en ENV=production.
+_JWT_SECRET_PLACEHOLDER = "dev-only-change-in-production-9f8a3b2c1d4e5f6a"
 
 
 class Settings(BaseSettings):
@@ -146,8 +153,10 @@ class Settings(BaseSettings):
 
     # --- Auth ---
     # Para JWT signing y HMAC del magic link. CAMBIAR en producción.
+    # El default literal abajo es DEV ONLY y se rechaza vía
+    # `_validate_production_secrets` cuando ENV=production.
     jwt_secret: str = Field(
-        default="dev-only-change-in-production-9f8a3b2c1d4e5f6a",
+        default=_JWT_SECRET_PLACEHOLDER,
         alias="JWT_SECRET",
     )
     jwt_algorithm: str = Field(default="HS256", alias="JWT_ALGORITHM")
@@ -197,6 +206,54 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.env.lower() == "production"
+
+    @model_validator(mode="after")
+    def _validate_production_secrets(self) -> "Settings":
+        """H-3: fail-fast si ENV=production con secretos placeholder.
+
+        El boot del proceso aborta antes de servir requests. Esto evita
+        que un misconfig de Render arranque el app con el JWT_SECRET
+        literal de dev (que es público en este repo) y deje todos los
+        JWTs / magic-links / polling-tokens forge-ables.
+
+        Detecta:
+        - JWT_SECRET == placeholder dev
+        - JWT_SECRET == "" (env var ausente)
+        - FERNET_KEY == "" en producción (PII fallback al SHA256 de
+          JWT_SECRET → rotaciones de JWT_SECRET orfanan toda la PII).
+        - MP_WEBHOOK_SECRET == "" en producción (webhook fail-open).
+        """
+        if not self.is_production:
+            return self
+
+        if self.jwt_secret == _JWT_SECRET_PLACEHOLDER:
+            raise ValueError(
+                "JWT_SECRET tiene el valor placeholder de dev. Setea uno "
+                "criptográficamente fuerte en Render env vars antes de "
+                "arrancar producción."
+            )
+        if not self.jwt_secret or len(self.jwt_secret) < 32:
+            raise ValueError(
+                "JWT_SECRET ausente o demasiado corto (<32 chars) en "
+                "producción. Genera uno con `openssl rand -hex 32` y "
+                "setealo en Render."
+            )
+        if not self.fernet_key:
+            raise ValueError(
+                "FERNET_KEY no está set en producción. PII en DB caería "
+                "al fallback derivado de JWT_SECRET, lo que orfana datos "
+                "en cada rotación. Genera uno con "
+                "`python -c 'from cryptography.fernet import Fernet; "
+                "print(Fernet.generate_key().decode())'`."
+            )
+        if not self.mp_webhook_secret:
+            raise ValueError(
+                "MP_WEBHOOK_SECRET no está set en producción. El webhook "
+                "de Mercado Pago caería a fail-open (acepta firmas no "
+                "verificadas). Configura el secret en MP Dashboard → "
+                "Notifications → Webhooks y copialo a Render."
+            )
+        return self
 
 
 @lru_cache
