@@ -246,6 +246,32 @@ async def verify(
     # Refrescamos el ORM para que el response tenga last_login_at actualizado.
     await session.refresh(user)
 
+    # MOD-038: link orphan Payments creados anonymous con el mismo email.
+    # `payer_email` está encriptado con Fernet (no determinístico) así que
+    # NO podemos filtrar por email en SQL. Cargamos los orphans recientes
+    # (90 días) sin user_id y comparamos en Python después de decrypt.
+    # Volumen esperado pre-launch: <100 rows. Si crece, agregar un hash
+    # column searchable en migración futura.
+    cutoff = datetime.now(UTC) - timedelta(days=90)
+    orphans = await session.execute(
+        select(Payment).where(
+            Payment.user_id.is_(None),
+            Payment.payer_email.is_not(None),
+            Payment.created_at >= cutoff,
+        )
+    )
+    linked = 0
+    user_email_lower = user.email.lower()
+    for p in orphans.scalars():
+        if p.payer_email and p.payer_email.strip().lower() == user_email_lower:
+            p.user_id = user.id
+            linked += 1
+    if linked:
+        logger.info(
+            "Linked %d orphan payment(s) to user %s on first login",
+            linked, user.id,
+        )
+
     token = create_session_token(user.id)
     return VerifyResponse(
         access_token=token,

@@ -224,6 +224,61 @@ def test_verify_with_unknown_email_returns_401(client) -> None:
     assert res.status_code == 401
 
 
+def test_verify_links_orphan_payments_by_email(client, db_factory) -> None:
+    """MOD-038: cuando un usuario verifica su magic link, los Payments
+    huérfanos (user_id=None) con `payer_email` matching su email se
+    enlazan a su user_id. Los Payments con email distinto NO se tocan."""
+    import asyncio
+
+    from app.db.models import Payment, PaymentStatus
+
+    email_target = "owner@verifica.mx"
+    email_other = "other@example.com"
+
+    # Seed: 2 payments huérfanos para email_target (deben linkearse)
+    # + 1 payment huérfano para email_other (NO debe linkearse)
+    async def _seed() -> None:
+        async with db_factory() as s:
+            for i in range(2):
+                s.add(Payment(
+                    amount_mxn=49.0, tier="basic",
+                    status=PaymentStatus.PENDING,
+                    mp_external_reference=f"orphan-target-{i}",
+                    payer_email=email_target,
+                ))
+            s.add(Payment(
+                amount_mxn=49.0, tier="basic",
+                status=PaymentStatus.PENDING,
+                mp_external_reference="orphan-other",
+                payer_email=email_other,
+            ))
+            await s.commit()
+
+    asyncio.get_event_loop().run_until_complete(_seed())
+
+    token = _request_link_and_capture(client, email_target)
+    res = client.post(
+        "/api/auth/verify",
+        json={"email": email_target, "token": token},
+    )
+    assert res.status_code == 200
+    user_id = res.json()["user"]["id"]
+
+    async def _check() -> tuple[int, int]:
+        async with db_factory() as s:
+            mine = await s.execute(
+                select(Payment).where(Payment.user_id == user_id)
+            )
+            others = await s.execute(
+                select(Payment).where(Payment.user_id.is_(None))
+            )
+            return len(mine.scalars().all()), len(others.scalars().all())
+
+    linked, still_orphan = asyncio.get_event_loop().run_until_complete(_check())
+    assert linked == 2  # los 2 de email_target
+    assert still_orphan == 1  # el de email_other queda huérfano
+
+
 def test_verify_consumes_token_single_use(client) -> None:
     """Después de un verify exitoso, el token NO debe servir otra vez."""
     token = _request_link_and_capture(client, "single@example.com")
