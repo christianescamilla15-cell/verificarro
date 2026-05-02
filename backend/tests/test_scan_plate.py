@@ -119,7 +119,7 @@ def _stolen_repuve(plate="XYZ789Q", vin=None) -> RepuveResult:
 
 def test_scan_plate_manual_creates_preview_record(client, db_factory) -> None:
     with patch(
-        "app.services.pipeline._run_repuve", return_value=_clean_repuve()
+        "app.services.pipeline.orchestrator.run_repuve_preview", return_value=_clean_repuve()
     ):
         res = client.post("/api/scan/plate", json={"manual_plate": "ABC123D"})
     assert res.status_code == 200, res.json()
@@ -145,7 +145,7 @@ def test_scan_plate_manual_creates_preview_record(client, db_factory) -> None:
 
 def test_scan_plate_stolen_returns_red(client) -> None:
     with patch(
-        "app.services.pipeline._run_repuve",
+        "app.services.pipeline.orchestrator.run_repuve_preview",
         return_value=_stolen_repuve(),
     ):
         res = client.post("/api/scan/plate", json={"manual_plate": "XYZ789Q"})
@@ -162,7 +162,7 @@ def test_scan_plate_captcha_returns_yellow_capped_preview(client) -> None:
     pipeline lo capa a 50/yellow para no inducir falsa confianza.
     """
     with patch(
-        "app.services.pipeline._run_repuve",
+        "app.services.pipeline.orchestrator.run_repuve_preview",
         return_value=_captcha_repuve(plate="ABC123D"),
     ):
         res = client.post("/api/scan/plate", json={"manual_plate": "ABC123D"})
@@ -193,7 +193,7 @@ def test_scan_plate_image_uses_smart_scanner_plate(client) -> None:
     with patch(
         "app.api.scan.smart_scan", return_value=fake_scan
     ) as mock_scan, patch(
-        "app.services.pipeline._run_repuve", return_value=_clean_repuve()
+        "app.services.pipeline.orchestrator.run_repuve_preview", return_value=_clean_repuve()
     ):
         res = client.post(
             "/api/scan/plate",
@@ -216,7 +216,7 @@ def test_scan_plate_image_smart_scanner_detects_vin(client) -> None:
     with patch(
         "app.api.scan.smart_scan", return_value=fake_scan
     ), patch(
-        "app.services.pipeline._run_repuve", return_value=_clean_repuve(vin="19XFC2F58JE000001"),
+        "app.services.pipeline.orchestrator.run_repuve_preview", return_value=_clean_repuve(vin="19XFC2F58JE000001"),
     ):
         res = client.post(
             "/api/scan/plate",
@@ -294,7 +294,7 @@ def test_checkout_with_report_id_links_payment_and_snapshots_plate(
     """El checkout con report_id enlaza Payment ↔ Report y copia plate."""
     # 1. Scan-first crea preview
     with patch(
-        "app.services.pipeline._run_repuve", return_value=_clean_repuve()
+        "app.services.pipeline.orchestrator.run_repuve_preview", return_value=_clean_repuve()
     ):
         scan_res = client.post(
             "/api/scan/plate", json={"manual_plate": "ABC123D"}

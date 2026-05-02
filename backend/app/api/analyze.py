@@ -9,14 +9,13 @@ from app.analyzers import vin_check as vin_check_module
 from app.models.report import (
     AnalyzeRequest,
     Report,
-    VinAlertModel,
     VinCheck,
     VinCheckRequest,
-    VinDecodedModel,
 )
 from app.rate_limit import limiter
 from app.services.pdf_report import generate_pdf
 from app.services.pipeline import run_pipeline
+from app.services.pipeline.mappers import to_pydantic_vin_check
 from app.services.vin_ocr import scan_vin_from_image
 
 logger = logging.getLogger(__name__)
@@ -37,41 +36,6 @@ class VinScanResponse(BaseModel):
     vin: str
     confidence: Literal["low", "medium", "high"]
     notes: str
-
-
-def _to_pydantic_vin_check(result) -> VinCheck:
-    """Convierte el dataclass `VinCheckResult` a su espejo Pydantic.
-
-    Si `result.nhtsa` está set (vino enrichment), inyecta los campos
-    NHTSA al `VinDecodedModel` para que el frontend los muestre.
-    """
-    decoded_kwargs = dict(result.decoded.__dict__)
-    if getattr(result, "nhtsa", None) is not None and result.nhtsa.found:
-        n = result.nhtsa
-        decoded_kwargs.update({
-            "nhtsa_found": True,
-            "nhtsa_make": n.make,
-            "nhtsa_model": n.model,
-            "nhtsa_model_year": n.model_year,
-            "nhtsa_body_class": n.body_class,
-            "nhtsa_trim": n.trim,
-            "nhtsa_engine_cylinders": n.engine_cylinders,
-            "nhtsa_engine_displacement_l": n.engine_displacement_l,
-            "nhtsa_fuel_type": n.fuel_type_primary,
-            "nhtsa_transmission": n.transmission_style,
-            "nhtsa_drive_type": n.drive_type,
-            "nhtsa_doors": n.doors,
-            "nhtsa_plant_country": n.plant_country,
-            "nhtsa_plant_city": n.plant_city,
-        })
-    return VinCheck(
-        decoded=VinDecodedModel(**decoded_kwargs),
-        matches_listing=result.matches_listing,
-        alerts=[VinAlertModel(severity=a.severity, message=a.message)
-                for a in result.alerts],
-        vin_in_description=result.vin_in_description,
-        scanned_at=result.scanned_at,
-    )
 
 
 @router.post("/analyze", response_model=Report)
@@ -138,7 +102,7 @@ async def check_vin(req: VinCheckRequest) -> VinCheck:
         listing=req.listing,
         repuve=req.repuve,
     )
-    return _to_pydantic_vin_check(result)
+    return to_pydantic_vin_check(result)
 
 
 @router.post("/analyze/pdf")
