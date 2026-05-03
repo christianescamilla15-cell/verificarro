@@ -135,3 +135,64 @@ def test_scrape_serializes_failed_query_correctly(client, monkeypatch) -> None:
     body = res.json()
     assert body["queried"] is False
     assert body["error"] == "captcha_required"
+
+
+# ---------------------------------------------------------------------------
+# /telemetry endpoints (Fase 1)
+
+
+def test_telemetry_list_requires_auth(client, monkeypatch) -> None:
+    monkeypatch.setenv("REPUVE_SCRAPER_TOKEN", "secret-test")
+    res = client.get("/telemetry")
+    assert res.status_code == 401
+
+
+def test_telemetry_list_returns_recent_attempts(client, monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("REPUVE_SCRAPER_TOKEN", "secret-test")
+    monkeypatch.setenv("SCRAPE_TELEMETRY_DB", str(tmp_path / "telemetry.db"))
+    # Seed via record_attempt directo
+    from app.services.scrape_telemetry import record_attempt
+    record_attempt(
+        config_label="default", plate="AAA111", vin=None,
+        techniques={"headless": True},
+        outcome={"queried": False, "raw_status": "captcha_required",
+                 "duration_ms": 5000},
+    )
+
+    res = client.get(
+        "/telemetry?limit=10",
+        headers={"Authorization": "Bearer secret-test"},
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["count"] == 1
+    assert body["attempts"][0]["plate"] == "AAA111"
+
+
+def test_telemetry_stats_returns_aggregations(client, monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("REPUVE_SCRAPER_TOKEN", "secret-test")
+    monkeypatch.setenv("SCRAPE_TELEMETRY_DB", str(tmp_path / "telemetry.db"))
+    from app.services.scrape_telemetry import record_attempt
+    # 4 attempts en exp_a, 1 hit
+    for i in range(4):
+        record_attempt(
+            config_label="exp_a", plate=f"P{i}", vin=None,
+            techniques={}, outcome={"queried": i == 0,
+                                    "raw_status": "sin_reportes" if i == 0 else "captcha_required"},
+        )
+
+    res = client.get(
+        "/telemetry/stats",
+        headers={"Authorization": "Bearer secret-test"},
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["total"] == 4
+    assert body["by_config"][0]["config_label"] == "exp_a"
+    assert body["by_config"][0]["hit_rate_pct"] == 25.0
+
+
+def test_telemetry_stats_requires_auth(client, monkeypatch) -> None:
+    monkeypatch.setenv("REPUVE_SCRAPER_TOKEN", "secret-test")
+    res = client.get("/telemetry/stats")
+    assert res.status_code == 401

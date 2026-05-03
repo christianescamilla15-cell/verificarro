@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import random
 import re
 import time
@@ -139,20 +140,42 @@ async def query(plate: str | None = None, vin: str | None = None) -> RepuveResul
     max_attempts = max(1, settings.repuve_retry_attempts)
     last_result: RepuveResult | None = None
 
+    # Fase 1 telemetry — captura técnicas activas en este attempt.
+    # config_label se setea via env var SCRAPE_CONFIG_LABEL (Fase 2 A/B).
+    config_label = (
+        os.environ.get("SCRAPE_CONFIG_LABEL", "default") or "default"
+    )
+    techniques = _capture_techniques(settings)
+
     for attempt in range(1, max_attempts + 1):
         await _throttle()
 
+        attempt_start = time.time()
         try:
             result = await _run_query(plate_norm, vin_norm)
         except Exception as exc:  # noqa: BLE001
-            return RepuveResult(
+            error_result = RepuveResult(
                 queried=False,
                 plate=plate_norm,
                 vin=vin_norm,
                 error=f"Error al consultar REPUVE: {exc}",
             )
+            _record_telemetry(
+                config_label, plate_norm, vin_norm,
+                {**techniques, "attempt_num": attempt},
+                error_result,
+                int((time.time() - attempt_start) * 1000),
+            )
+            return error_result
 
+        attempt_duration_ms = int((time.time() - attempt_start) * 1000)
         last_result = result
+
+        _record_telemetry(
+            config_label, plate_norm, vin_norm,
+            {**techniques, "attempt_num": attempt},
+            result, attempt_duration_ms,
+        )
 
         # Éxito real (REPUVE devolvió datos) o error no-captcha → return
         if result.queried or result.raw_status != "captcha_required":
@@ -173,6 +196,63 @@ async def query(plate: str | None = None, vin: str | None = None) -> RepuveResul
         queried=False, plate=plate_norm, vin=vin_norm,
         error="Sin respuesta de REPUVE",
     )
+
+
+def _capture_techniques(settings) -> dict:
+    """Snapshot de técnicas activas. Lo que cambia entre experimentos
+    (proxies, retries, etc.) queda capturado para A/B.
+
+    Defensivo: usa getattr con default para que tests con fake settings
+    minimalistas no exploten. En producción todos los attrs existen.
+    """
+    return {
+        "headless": getattr(settings, "playwright_headless", True),
+        "stealth_flags": [
+            "AutomationControlled",
+            "IsolateOrigins",
+        ],
+        "user_agent_short": "Chrome 130 Win",
+        "proxy_used": bool(
+            getattr(settings, "proxy_url", "")
+            or getattr(settings, "proxy_server", "")
+        ),
+        "captcha_solver": "2captcha",
+        "scrape_timeout_ms": getattr(settings, "scrape_timeout_ms", 30000),
+        "retry_attempts_max": getattr(settings, "repuve_retry_attempts", 1),
+        "rate_limit_per_sec": getattr(settings, "repuve_rate_limit_per_sec", 1),
+        "profile_persistent": bool(
+            getattr(settings, "playwright_profile_dir", "")
+        ),
+    }
+
+
+def _record_telemetry(
+    config_label: str,
+    plate: str | None,
+    vin: str | None,
+    techniques: dict,
+    result: RepuveResult,
+    duration_ms: int,
+) -> None:
+    """Wrapper failure-tolerant alrededor de scrape_telemetry."""
+    try:
+        from app.services.scrape_telemetry import record_attempt
+        record_attempt(
+            config_label=config_label,
+            plate=plate,
+            vin=vin,
+            techniques=techniques,
+            outcome={
+                "queried": result.queried,
+                "raw_status": result.raw_status,
+                "error": result.error,
+                "duration_ms": duration_ms,
+                "is_stolen": result.is_stolen,
+            },
+        )
+    except Exception:  # noqa: BLE001
+        # Telemetry NUNCA debe romper el flow productivo
+        logger.exception("scrape_telemetry record falló (no-bloqueante)")
 
 
 # ---------------------------------------------------------------------------

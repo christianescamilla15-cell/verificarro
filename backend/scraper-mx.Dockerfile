@@ -84,6 +84,7 @@ COPY app/scrapers/ ./app/scrapers/
 COPY app/services/__init__.py ./app/services/__init__.py
 COPY app/services/captcha_solver.py ./app/services/captcha_solver.py
 COPY app/services/playwright_bootstrap.py ./app/services/playwright_bootstrap.py
+COPY app/services/scrape_telemetry.py ./app/services/scrape_telemetry.py
 
 RUN chown -R pwuser:pwuser /app
 USER pwuser

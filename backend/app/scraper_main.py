@@ -145,3 +145,38 @@ async def scrape_repuve(
         raw_status=result.raw_status,
         error=result.error,
     )
+
+
+@app.get("/telemetry")
+async def telemetry_list(
+    authorization: str | None = Header(default=None),
+    limit: int = 100,
+    config_label: str | None = None,
+    since_ts: str | None = None,
+) -> dict:
+    """Lista de attempts más recientes (Fase 1 telemetría).
+
+    Query params:
+        limit: max rows (default 100, cap 1000)
+        config_label: filtra por experimento
+        since_ts: ISO timestamp, solo attempts más recientes
+    """
+    _check_token(authorization)
+    from app.services.scrape_telemetry import get_attempts
+    attempts = get_attempts(
+        limit=min(int(limit), 1000),
+        config_label=config_label,
+        since_ts=since_ts,
+    )
+    return {"count": len(attempts), "attempts": attempts}
+
+
+@app.get("/telemetry/stats")
+async def telemetry_stats(
+    authorization: str | None = Header(default=None),
+    since_ts: str | None = None,
+) -> dict:
+    """Stats agregadas por config_label — base del A/B análisis Fase 2."""
+    _check_token(authorization)
+    from app.services.scrape_telemetry import aggregate_stats
+    return aggregate_stats(since_ts=since_ts)
