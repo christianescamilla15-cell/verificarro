@@ -1,0 +1,49 @@
+{
+  "manifest_version": 3,
+  "name": "Verificarro Helper",
+  "version": "0.1.0",
+  "description": "Consulta REPUVE automaticamente desde tu navegador para Verificarro.",
+  "permissions": ["storage", "tabs"],
+  "host_permissions": [
+    "https://www2.repuve.gob.mx/*",
+    "https://verificarro.vercel.app/*",
+    "https://verificarro.mx/*",
+    "https://*.verificarro.mx/*",
+    "http://localhost:5173/*"
+  ],
+  "background": {
+    "service_worker": "background/service_worker.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www2.repuve.gob.mx/ciudadania/*"],
+      "js": ["content/repuve_filler.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://verificarro.vercel.app/*",
+        "https://verificarro.mx/*",
+        "https://*.verificarro.mx/*",
+        "http://localhost:5173/*"
+      ],
+      "js": ["content/verificarro_bridge.js"],
+      "run_at": "document_start"
+    }
+  ],
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "Verificarro Helper",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

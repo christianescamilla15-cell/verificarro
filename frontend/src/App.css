@@ -1189,6 +1189,80 @@ code.invoice-field-value {
   background: var(--accent-soft);
   border-color: var(--accent);
 }
+
+/* RepuveScreenshotUploader — sube captura del modal post-consulta manual */
+.repuve-uploader {
+  margin-top: var(--space-5);
+  padding: var(--space-4);
+  background: var(--bg-elevated);
+  border: 1px dashed var(--border-default);
+  border-radius: var(--radius-md);
+  text-align: left;
+}
+.repuve-uploader-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-2);
+}
+.repuve-uploader-header strong {
+  color: var(--accent-text);
+  font-size: var(--fs-md);
+}
+.repuve-uploader-desc {
+  margin: 0 0 var(--space-3);
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-normal);
+}
+.repuve-uploader-cta {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+}
+.repuve-uploader-status {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4) 0;
+  text-align: center;
+}
+.repuve-uploader-preview {
+  max-width: 100%;
+  max-height: 220px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-default);
+}
+.repuve-uploader-success svg {
+  color: var(--success-text, #16a34a);
+}
+.repuve-uploader-success strong {
+  color: var(--text-primary);
+  font-size: var(--fs-md);
+}
+.repuve-uploader-success p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+}
+.repuve-uploader-warning {
+  display: block;
+  margin-top: var(--space-2);
+  color: var(--warning-text);
+  font-size: var(--fs-xs);
+}
+.repuve-uploader-error svg {
+  color: var(--warning-text);
+}
+.repuve-uploader-error p {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--fs-sm);
+}
+
 .gov-link-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));

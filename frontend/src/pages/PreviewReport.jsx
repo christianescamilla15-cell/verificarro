@@ -9,6 +9,7 @@ import PaywallModal from '../components/PaywallModal.jsx'
 import ScoreChip from '../components/ScoreChip.jsx'
 import KVTable from '../components/KVTable.jsx'
 import Spinner from '../components/Spinner.jsx'
+import RepuveScreenshotUploader from '../components/RepuveScreenshotUploader.jsx'
 
 /**
  * Muestra el preview gratis del reporte: score visible + REPUVE básico
@@ -119,6 +120,24 @@ export default function PreviewReport() {
             <ExternalLink size={20} strokeWidth={2.4} />
             Abrir REPUVE oficial
           </a>
+          <RepuveScreenshotUploader
+            plate={data.plate}
+            vin={data.vin}
+            onResult={(parsed) => {
+              setData((prev) => prev && ({
+                ...prev,
+                repuve: {
+                  queried: parsed.queried,
+                  plate: parsed.plate,
+                  vin: parsed.vin,
+                  is_stolen: parsed.is_stolen,
+                  has_legal_status: parsed.has_legal_status,
+                  raw_status: parsed.raw_status,
+                  error: parsed.error,
+                },
+              }))
+            }}
+          />
         </section>
       )}
 

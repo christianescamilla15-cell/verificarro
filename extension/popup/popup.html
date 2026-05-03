@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <title>Verificarro Helper</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header>
+      <img src="../icons/icon48.png" alt="" width="32" height="32" />
+      <h1>Verificarro Helper</h1>
+    </header>
+    <p id="status">
+      Activo. Abre <a href="https://verificarro.mx" target="_blank" rel="noopener">verificarro.mx</a>
+      y la consulta a REPUVE corre automaticamente.
+    </p>
+    <details>
+      <summary>Como funciona?</summary>
+      <p>
+        Al pedir un reporte, esta extension abre una pestana invisible a
+        repuve.gob.mx desde tu navegador, captura el resultado y lo manda
+        a Verificarro. Sin captchas, sin pegar texto a mano.
+      </p>
+    </details>
+    <footer>v<span id="version"></span></footer>
+    <script src="popup.js"></script>
+  </body>
+</html>

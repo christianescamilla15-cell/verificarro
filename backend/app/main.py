@@ -8,7 +8,15 @@ from slowapi.middleware import SlowAPIMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app import __version__
-from app.api import analyze, auth, health, payments, scan
+from app.api import (
+    analyze,
+    auth,
+    health,
+    payments,
+    repuve_extension,
+    repuve_screenshot,
+    scan,
+)
 from app.config import get_settings
 from app.rate_limit import limiter
 
@@ -228,6 +236,8 @@ def create_app() -> FastAPI:
     app.include_router(payments.router, prefix="/api")
     app.include_router(auth.router, prefix="/api")
     app.include_router(scan.router, prefix="/api")
+    app.include_router(repuve_extension.router, prefix="/api")
+    app.include_router(repuve_screenshot.router, prefix="/api")
 
     return app
 
