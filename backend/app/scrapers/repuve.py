@@ -223,6 +223,9 @@ def _capture_techniques(settings) -> dict:
         "profile_persistent": bool(
             getattr(settings, "playwright_profile_dir", "")
         ),
+        "cookie_warmup": (
+            os.environ.get("SCRAPE_COOKIE_WARMUP", "").lower() == "true"
+        ),
     }
 
 
@@ -381,6 +384,27 @@ async def _run_query(plate: str | None, vin: str | None) -> RepuveResult:
             page = await context.new_page()
             # Aplicar stealth ANTES de navegar a cualquier URL
             await apply_stealth(page)
+
+            # Fase 2 cookie_warmup_v1 — visita Google + YouTube ANTES de
+            # REPUVE para acumular cookies _ga, NID, etc. Reduce el score
+            # bot del reCaptcha v3 al hacer que el browser parezca tener
+            # historia de uso humano. Activa via SCRAPE_COOKIE_WARMUP=true.
+            if os.environ.get("SCRAPE_COOKIE_WARMUP", "").lower() == "true":
+                for warmup_url in (
+                    "https://www.google.com.mx",
+                    "https://www.youtube.com",
+                ):
+                    try:
+                        await page.goto(
+                            warmup_url, wait_until="domcontentloaded",
+                            timeout=15_000,
+                        )
+                        await page.wait_for_timeout(random.randint(1800, 3500))
+                    except Exception as exc:  # noqa: BLE001
+                        logger.warning(
+                            "Cookie warmup en %s falló: %s — continuando",
+                            warmup_url, exc,
+                        )
 
             await page.goto(
                 REPUVE_URL,
