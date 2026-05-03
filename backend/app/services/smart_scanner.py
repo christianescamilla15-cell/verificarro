@@ -99,6 +99,17 @@ Para PLATE:
 - "value": los 5-7 chars alfanuméricos sin guiones ni espacios
 - "extra": {} (vacío)
 - "confidence": qué tan claro se ven los caracteres
+- IMPORTANTE: si VES un rectángulo metálico que claramente es \
+una placa pero algunos caracteres están borrosos por reflejo, sombra \
+o suciedad, devuelve los que SÍ puedes leer (aunque sean 4 o sólo \
+parciales) con confidence="low". Es mucho mejor entregar lectura \
+parcial low-confidence que value vacío — el usuario puede corregir \
+manualmente. SOLO devuelve value="" si NO hay placa visible o está \
+totalmente ilegible.
+- Las placas mexicanas siguen patrones tipo: 3 letras + 3 dígitos + \
+1 letra (CDMX nuevas), 3 letras + 4 dígitos (estados), o 6 chars \
+mixtos (placas viejas). Si ves el patrón pero dudas en 1-2 caracteres, \
+elige el más probable según contexto del patrón.
 
 Para VIN:
 - "value": exactamente 17 caracteres. Si cuentas más o menos, "low" \

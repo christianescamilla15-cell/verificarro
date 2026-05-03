@@ -64,13 +64,40 @@ def test_parse_scan_response_strips_dashes_and_uppercases() -> None:
 
 
 def test_parse_scan_response_too_long_drops_confidence() -> None:
+    """8 chars cae dentro del rango ahora-tolerado 4-8 pero NO en el
+    ideal 5-7, asi que confidence se baja a low con nota de
+    'lectura parcial' para que el frontend pida confirmacion al user.
+    """
     from app.services.plate_ocr import parse_scan_response
 
     raw = '{"plate": "ABCDEFGH", "confidence": "high", "notes": ""}'
     out = parse_scan_response(raw)
     assert out.plate == "ABCDEFGH"
     assert out.confidence == "low"
-    assert "8 caracteres" in out.notes
+    assert "Lectura parcial" in out.notes
+    assert "8" in out.notes
+
+
+def test_parse_scan_response_4_chars_accepted_with_low_conf() -> None:
+    """Tolerancia 4 chars: placa parcial con sombra en ultimos chars."""
+    from app.services.plate_ocr import parse_scan_response
+
+    raw = '{"plate": "ABCD", "confidence": "high", "notes": "borrosa atras"}'
+    out = parse_scan_response(raw)
+    assert out.plate == "ABCD"
+    assert out.confidence == "low"
+    assert "Lectura parcial" in out.notes
+
+
+def test_parse_scan_response_3_chars_rejected_as_out_of_range() -> None:
+    """3 chars sigue cayendo fuera del rango 4-8."""
+    from app.services.plate_ocr import parse_scan_response
+
+    raw = '{"plate": "ABC", "confidence": "high", "notes": ""}'
+    out = parse_scan_response(raw)
+    assert out.plate == "ABC"
+    assert out.confidence == "low"
+    assert "rango aceptado 4-8" in out.notes
 
 
 def test_parse_scan_response_invalid_json_returns_low() -> None:

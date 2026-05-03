@@ -49,6 +49,15 @@ de la posición (las placas suelen tener patrón letras-números).
 leer, devuelve plate="" y explica en notes.
 4. NO inventes caracteres. Si solo ves 5 caracteres claros, devuelve \
 5 caracteres — REPUVE manejará la validación.
+5. PREFIERE LECTURA PARCIAL CON CONFIDENCE LOW SOBRE VACÍO. Si ves \
+una placa real pero algunos caracteres están borrosos por sombra/reflejo, \
+devuelve los que sí puedes distinguir (aunque sea 4 caracteres) con \
+confidence="low". El usuario puede corregir manualmente. Devolver \
+plate="" SOLO cuando NO hay placa visible.
+6. Patrones típicos MX: AAA1234, AAA123A, AAA-12-34 (sin guion: AAA1234), \
+ABC1234. Si ves un patrón parcial, eso ayuda a desambiguar caracteres \
+borrosos (ej. si los primeros 3 deberían ser letras y ves "OOO", \
+probablemente es "OOO" porque "000" no encajaría en el patrón).
 
 Output: JSON exactamente con este shape:
 {
@@ -151,11 +160,21 @@ def parse_scan_response(raw_json: str) -> PlateScanResult:
 
     notes = str(data.get("notes", ""))[:500]
 
-    if cleaned and not (5 <= len(cleaned) <= 7):
+    # Tolerancia 4-8: scan.py acepta este rango (placa parcial low
+    # confidence vale más que rechazo total). Solo bajamos confidence
+    # cuando esta fuera del rango 5-7 ideal.
+    if cleaned and not (4 <= len(cleaned) <= 8):
         notes = (
             f"{notes} | Placa extraída tiene {len(cleaned)} caracteres "
-            "(esperaba entre 5 y 7). Re-escanea con mejor luz o ingresa "
+            "(rango aceptado 4-8). Re-escanea con mejor luz o ingresa "
             "manualmente."
+        ).strip(" |")
+        confidence = "low"
+    elif cleaned and len(cleaned) not in (5, 6, 7):
+        # 4 u 8 caracteres: aceptar pero con downgrade explicito
+        notes = (
+            f"{notes} | Lectura parcial ({len(cleaned)} chars) — "
+            "verifica que la placa sea correcta antes de continuar."
         ).strip(" |")
         confidence = "low"
 

@@ -33,6 +33,7 @@ from app.db.models import ReportRecord, ReportStatus
 from app.db.session import SessionDep
 from app.rate_limit import limiter
 from app.services.pipeline import run_preview_pipeline
+from app.services.plate_ocr import scan_plate_from_image
 from app.services.smart_scanner import precheck_image, smart_scan
 
 logger = logging.getLogger(__name__)
@@ -290,7 +291,17 @@ async def _resolve_plate_and_vin(
                 detail=f"No pude procesar la imagen: {exc}",
             ) from exc
 
-        if result.type == "plate" and result.value and 5 <= len(result.value) <= 7:
+        # Tolerancia 4-8 chars (placas mexicanas viejas pueden ser 5-6,
+        # nuevas son 7; tolerar 4 y 8 captura ediciones donde Sonnet leyó
+        # un caracter de más o de menos por reflejos/sombras. La validacion
+        # final la hace REPUVE — placa "rara" devuelve no_encontrado, no
+        # crash. Mejor pasarle al user su placa con baja confidence que
+        # rechazarla totalmente.
+        if (
+            result.type == "plate"
+            and result.value
+            and 4 <= len(result.value) <= 8
+        ):
             return (
                 result.value, None, result.confidence, result.notes,
                 "plate", None,
@@ -306,12 +317,49 @@ async def _resolve_plate_and_vin(
             # y pedir escaneo de placa o VIN para complementar).
             return None, None, None, None, "invoice", result.extra
 
-        # Unknown o validación fallida (placa muy corta, VIN no 17, etc.)
+        # FALLBACK: smart_scan no extrajo placa valida (type=plate con
+        # value vacio/longitud mala, o type=unknown). Antes de rendirnos,
+        # damos UN segundo intento con plate_ocr dedicado — un prompt
+        # focused-solo-en-placas frecuentemente lee lo que el multi-purpose
+        # smart_scanner no pudo. Costo extra: ~$0.005 USD por foto que
+        # llegue a este punto. Vale la pena por la conversion vs perder
+        # al usuario en "no pude reconocer".
+        logger.info(
+            "smart_scan no devolvio placa valida (type=%s value=%r) — "
+            "fallback a plate_ocr dedicado",
+            result.type, result.value[:10] if result.value else "",
+        )
+        try:
+            plate_result = await scan_plate_from_image(
+                body.image_base64, body.media_type,
+            )
+        except RuntimeError as exc:
+            logger.warning("plate_ocr fallback fallo: %s", exc)
+            plate_result = None
+
+        if (
+            plate_result
+            and plate_result.plate
+            and 4 <= len(plate_result.plate) <= 8
+        ):
+            return (
+                plate_result.plate, None,
+                plate_result.confidence, plate_result.notes,
+                "plate", None,
+            )
+
+        # Mensaje al usuario: usar las notes del intento mas informativo
+        # (plate_ocr si corrio, smart_scan si no).
+        notes = (
+            plate_result.notes if plate_result and plate_result.notes
+            else result.notes
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
-                f"No pude reconocer placa, VIN ni factura en la foto. "
-                f"{result.notes} Re-toma la foto o ingresa los datos manualmente."
+                "No pude reconocer la placa. Acerca la camara para que "
+                "la placa LLENE el cuadro y evita reflejos. "
+                f"{notes or 'Re-toma la foto o ingresa la placa manualmente.'}"
             ),
         )
 
