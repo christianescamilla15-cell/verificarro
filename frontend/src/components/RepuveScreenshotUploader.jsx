@@ -49,14 +49,18 @@ export default function RepuveScreenshotUploader({
     setError(null)
     setWarning(null)
 
-    if (!file.type.startsWith('image/')) {
-      setError('Selecciona una imagen (JPG, PNG o WebP).')
+    const isImage = file.type.startsWith('image/')
+    const isPdf = file.type === 'application/pdf'
+    if (!isImage && !isPdf) {
+      setError('Selecciona una imagen (JPG/PNG/WebP) o el PDF que descargaste de REPUVE.')
       setStage('error')
       return
     }
-    // Limite ~3MB original (a ~4MB en base64). Mobile JPEG suele ser <2MB.
-    if (file.size > 3 * 1024 * 1024) {
-      setError('La imagen es muy grande. Usa una captura del celular (no foto HD).')
+    // Limite 3MB para imagen, 4MB para PDF (REPUVE PDF puede pesar mas).
+    const maxBytes = isPdf ? 4 * 1024 * 1024 : 3 * 1024 * 1024
+    if (file.size > maxBytes) {
+      const limitMB = isPdf ? '4 MB' : '3 MB'
+      setError(`El archivo es muy grande (limite ${limitMB}).`)
       setStage('error')
       return
     }
@@ -64,9 +68,11 @@ export default function RepuveScreenshotUploader({
     const reader = new FileReader()
     reader.onload = async () => {
       const dataUrl = String(reader.result || '')
-      setPreviewUrl(dataUrl)
+      // Solo guardamos preview visual para imagenes (PDFs no se renderean inline)
+      setPreviewUrl(isImage ? dataUrl : null)
       const base64 = dataUrl.split(',')[1]
-      const mediaType = file.type === 'image/png' ? 'image/png'
+      const mediaType = isPdf ? 'application/pdf'
+        : file.type === 'image/png' ? 'image/png'
         : file.type === 'image/webp' ? 'image/webp'
         : 'image/jpeg'
 
@@ -127,7 +133,7 @@ export default function RepuveScreenshotUploader({
   return (
     <div className="repuve-uploader" role="region" aria-label="Subir captura REPUVE">
       <div className="repuve-uploader-header">
-        <strong>Ya tienes el resultado? Sube la captura</strong>
+        <strong>Ya tienes el resultado? Sube el PDF o captura</strong>
         {onCancel && (
           <button
             type="button"
@@ -141,16 +147,16 @@ export default function RepuveScreenshotUploader({
       </div>
 
       <p className="repuve-uploader-desc">
-        Despues de ver el resultado en repuve.gob.mx, toma una captura
-        de pantalla con tu celular y subela aqui. Lo leemos y completamos
-        tu reporte automaticamente.
+        En REPUVE, despues de "Buscar", usa el boton{' '}
+        <strong>"Exportar a PDF"</strong> y sube ese archivo aqui.
+        Tambien aceptamos captura de pantalla (JPG/PNG) si tu celular
+        te permite tomarla.
       </p>
 
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/*"
-        capture="environment"
+        accept="image/*,application/pdf"
         onChange={handleFile}
         style={{ display: 'none' }}
       />
@@ -162,7 +168,7 @@ export default function RepuveScreenshotUploader({
           onClick={pickFile}
         >
           <Camera size={20} strokeWidth={2.4} />
-          Subir captura del modal REPUVE
+          Subir PDF o captura de REPUVE
         </button>
       )}
 

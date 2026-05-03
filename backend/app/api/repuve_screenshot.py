@@ -41,22 +41,31 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/repuve", tags=["repuve-screenshot"])
 
-# Limite alineado con vin/scan (que tambien recibe imagenes base64).
-# Una captura mobile JPEG ronda 200-800KB → en base64 ~270K-1MB.
-_MAX_IMAGE_B64_CHARS = 2_000_000
+# Limite tamao archivo. JPEG mobile ronda 200-800KB → en base64
+# ~270K-1MB. PDF de REPUVE puede ser 1-2 MB → ~2-3MB en base64.
+# Margen 4MB cubre ambos casos con holgura.
+_MAX_IMAGE_B64_CHARS = 4_000_000
 
 
 class ScreenshotRequest(BaseModel):
-    """Body de `POST /api/repuve/screenshot`."""
+    """Body de `POST /api/repuve/screenshot`.
+
+    Acepta imagen (cuando el user logra screenshot) o PDF (cuando el
+    user usa el boton "Exportar a PDF" de REPUVE — necesario porque
+    REPUVE bloquea screenshots con FLAG_SECURE en mobile).
+    """
 
     plate: str | None = Field(default=None, max_length=16)
     vin: str | None = Field(default=None, max_length=24)
     image_base64: str = Field(
         min_length=100,
-        description="Captura JPEG/PNG/WebP del modal REPUVE en base64",
+        description=(
+            "Archivo del modal REPUVE en base64 — JPEG/PNG/WebP "
+            "(captura) o PDF (exportado desde REPUVE)"
+        ),
     )
     media_type: Literal[
-        "image/jpeg", "image/png", "image/webp"
+        "image/jpeg", "image/png", "image/webp", "application/pdf"
     ] = Field(default="image/jpeg")
     source: str = Field(
         default="screenshot",
@@ -171,3 +180,5 @@ async def screenshot_result(
         ocr_confidence=ocr.confidence,
         ocr_notes=ocr.notes,
     )
+
+

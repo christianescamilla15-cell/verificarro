@@ -112,12 +112,52 @@ async def scan_repuve_screenshot(
     image_base64: str,
     media_type: str = "image/jpeg",
 ) -> RepuveScreenshotResult:
-    """OCR del modal REPUVE desde imagen base64. Costo: ~$0.005 USD."""
+    """OCR del modal REPUVE desde imagen base64 O PDF.
+
+    Acepta tanto imagenes (image/jpeg, image/png, image/webp) como
+    PDFs (application/pdf) — REPUVE bloquea screenshots con
+    FLAG_SECURE pero ofrece export a PDF que sirve cuando funciona.
+    Claude API soporta PDFs nativamente con bloque content type
+    'document' (mismo flow que image, mismo prompt, mismo schema).
+
+    Costo: ~$0.005 USD (image) o ~$0.005-0.015 USD (PDF, depende
+    de paginas — el PDF de REPUVE suele ser 1-2 paginas).
+    """
     settings = get_settings()
     if not settings.anthropic_api_key:
         raise RuntimeError("ANTHROPIC_API_KEY no configurada para OCR")
 
     import anthropic
+
+    # Construir el bloque de contenido segun tipo. PDF usa el bloque
+    # 'document' (Claude lo procesa pagina-por-pagina con vision).
+    if media_type == "application/pdf":
+        content_block: dict = {
+            "type": "document",
+            "source": {
+                "type": "base64",
+                "media_type": "application/pdf",
+                "data": image_base64,
+            },
+        }
+        prompt_text = (
+            "Lee el contenido del PDF descargado de REPUVE (resultado "
+            "de consulta vehicular) y extrae el texto del modal/seccion "
+            "principal con el resultado."
+        )
+    else:
+        content_block = {
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": media_type,
+                "data": image_base64,
+            },
+        }
+        prompt_text = (
+            "Lee el modal de resultado REPUVE en esta captura y "
+            "extrae su contenido textual."
+        )
 
     client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
     response = await client.messages.create(
@@ -134,21 +174,8 @@ async def scan_repuve_screenshot(
             {
                 "role": "user",
                 "content": [
-                    {
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": media_type,
-                            "data": image_base64,
-                        },
-                    },
-                    {
-                        "type": "text",
-                        "text": (
-                            "Lee el modal de resultado REPUVE en esta "
-                            "captura y extrae su contenido textual."
-                        ),
-                    },
+                    content_block,
+                    {"type": "text", "text": prompt_text},
                 ],
             }
         ],

@@ -45,12 +45,36 @@ def test_screenshot_requires_plate_or_vin(client: TestClient) -> None:
 
 
 def test_screenshot_validates_image_size_limit(client: TestClient) -> None:
-    huge = "A" * 2_000_001
+    """Limite ahora 4MB (subido para acomodar PDFs de REPUVE)."""
+    huge = "A" * 4_000_001
     res = client.post(
         "/api/repuve/screenshot",
         json={"plate": "ABC1234", "image_base64": huge},
     )
     assert res.status_code == 413
+
+
+def test_screenshot_accepts_pdf_media_type(client: TestClient) -> None:
+    """PDF de REPUVE es la salida principal (FLAG_SECURE bloquea screenshots)."""
+    fake = RepuveScreenshotResult(
+        text="Sin reportes de robo",
+        found_modal=True,
+        confidence="high",
+        notes="",
+    )
+    with _patch_ocr(fake):
+        res = client.post(
+            "/api/repuve/screenshot",
+            json={
+                "plate": "ABC1234",
+                "image_base64": _fake_image_b64(),
+                "media_type": "application/pdf",
+            },
+        )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["queried"] is True
+    assert body["is_stolen"] is False
 
 
 def test_screenshot_no_modal_returns_clear_error(client: TestClient) -> None:

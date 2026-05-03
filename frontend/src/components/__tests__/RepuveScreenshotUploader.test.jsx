@@ -25,14 +25,14 @@ describe('RepuveScreenshotUploader', () => {
   it('renderiza el CTA inicial con copy claro', () => {
     render(<RepuveScreenshotUploader plate="ABC1234" />)
     expect(
-      screen.getByText(/Sube la captura/i),
+      screen.getByText(/Sube el PDF o captura/i),
     ).toBeInTheDocument()
     expect(
-      screen.getByRole('button', { name: /Subir captura del modal REPUVE/i }),
+      screen.getByRole('button', { name: /Subir PDF o captura de REPUVE/i }),
     ).toBeInTheDocument()
   })
 
-  it('rechaza archivos no-imagen sin llamar al backend', async () => {
+  it('rechaza archivos que no son imagen ni PDF sin llamar al backend', async () => {
     const { container } = render(<RepuveScreenshotUploader plate="ABC1234" />)
     const input = findHiddenFileInput(container)
     const txt = new File(['hola'], 'nota.txt', { type: 'text/plain' })
@@ -40,7 +40,7 @@ describe('RepuveScreenshotUploader', () => {
     fireEvent.change(input, { target: { files: [txt] } })
 
     await waitFor(() => {
-      expect(screen.getByText(/Selecciona una imagen/i)).toBeInTheDocument()
+      expect(screen.getByText(/Selecciona una imagen.*PDF/i)).toBeInTheDocument()
     })
     expect(api.post).not.toHaveBeenCalled()
   })
@@ -53,9 +53,45 @@ describe('RepuveScreenshotUploader', () => {
     fireEvent.change(input, { target: { files: [huge] } })
 
     await waitFor(() => {
-      expect(screen.getByText(/imagen es muy grande/i)).toBeInTheDocument()
+      expect(screen.getByText(/El archivo es muy grande.*3 MB/i)).toBeInTheDocument()
     })
     expect(api.post).not.toHaveBeenCalled()
+  })
+
+  it('acepta PDF y lo manda con media_type application/pdf', async () => {
+    api.post.mockResolvedValue({
+      ok: true,
+      data: {
+        queried: true,
+        plate: 'ABC1234',
+        is_stolen: false,
+        raw_status: 'sin_reportes',
+        ocr_confidence: 'high',
+        ocr_notes: '',
+      },
+    })
+    const onResult = vi.fn()
+    const { container } = render(
+      <RepuveScreenshotUploader plate="ABC1234" onResult={onResult} />,
+    )
+    const input = findHiddenFileInput(container)
+    const pdfBlob = new Blob([new Uint8Array(500)], { type: 'application/pdf' })
+    const pdfFile = new File([pdfBlob], 'repuve.pdf', { type: 'application/pdf' })
+
+    fireEvent.change(input, { target: { files: [pdfFile] } })
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith(
+        '/api/repuve/screenshot',
+        expect.objectContaining({
+          media_type: 'application/pdf',
+          plate: 'ABC1234',
+        }),
+      )
+    })
+    await waitFor(() => {
+      expect(onResult).toHaveBeenCalled()
+    })
   })
 
   it('llama onResult con datos del backend cuando la consulta tiene exito', async () => {
