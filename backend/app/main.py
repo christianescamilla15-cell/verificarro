@@ -1,4 +1,5 @@
 import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -7,8 +8,17 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from app import __version__
-from app.api import (
+# Config de logging GLOBAL antes de cualquier import de la app.
+# Sin esto Python defaultea a WARNING y todos los logger.info(...)
+# de nuestros módulos quedan invisibles en Render runtime logs —
+# imposible diagnosticar bugs como "Claude devolvió X" sin esto.
+logging.basicConfig(
+    level=os.environ.get("LOG_LEVEL", "INFO").upper(),
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+
+from app import __version__  # noqa: E402
+from app.api import (  # noqa: E402
     analyze,
     auth,
     health,
@@ -17,8 +27,8 @@ from app.api import (
     repuve_screenshot,
     scan,
 )
-from app.config import get_settings
-from app.rate_limit import limiter
+from app.config import get_settings  # noqa: E402
+from app.rate_limit import limiter  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
