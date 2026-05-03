@@ -74,20 +74,20 @@ export default function PreviewReport() {
         <a href="/terminos" target="_blank" rel="noreferrer">Términos</a>.
       </aside>
 
-      {/* CTA HERO: cuando captcha falló, los links manuales son la salida.
-          REPUVE oficial NO permite pre-llenar placa via query (Angular SPA),
-          por eso le decimos al usuario que copie su placa y resuelva captcha
-          humano — proceso de ~30s, 100% confiable. */}
+      {/* CTA HERO: REPUVE no se puede consultar desde nuestro servidor
+          (los servidores cloud están bloqueados de raíz). Pero TÚ desde
+          tu celular sí lo consultas en segundos sin obstáculos. */}
       {repuveAutoFailed && repuveLink && (
         <section className="report-section gov-hero">
           <div className="gov-hero-banner">
             <AlertCircle size={22} strokeWidth={2.4} />
             <div>
-              <strong>REPUVE bloquea consultas automáticas</strong>
+              <strong>REPUVE solo permite consultas desde tu navegador</strong>
               <p>
-                Es un sistema gubernamental con anti-bot estricto. Lo bueno: en
-                el portal oficial tú resuelves el captcha en 5 segundos
-                (humano) y obtienes el resultado real, sin costo.
+                El portal oficial bloquea consultas automatizadas desde
+                servidores externos por seguridad. Pero desde tu celular
+                tarda 10 segundos y es gratis — abre el portal, pega tu
+                placa, y sube la captura del resultado aquí abajo.
               </p>
             </div>
           </div>
@@ -107,8 +107,8 @@ export default function PreviewReport() {
                   copiar
                 </button>
               </li>
-              <li>Resuelve el captcha (es solo 1 click humano) y "Buscar"</li>
-              <li>El resultado oficial aparece en pantalla</li>
+              <li>Click en <strong>"Buscar"</strong></li>
+              <li>Toma una captura del resultado y súbela aquí abajo</li>
             </ol>
           </div>
           <a

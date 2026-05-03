@@ -270,11 +270,11 @@ export default function Landing() {
           <details>
             <summary>¿Por qué a veces REPUVE no responde?</summary>
             <p>
-              El portal de gob.mx tiene reCaptcha de Google que bloquea
-              consultas automáticas. Cuando pasa, el preview te avisa con
-              un score conservador y aún puedes desbloquear el reporte
-              completo — incluye instrucciones para que confirmes REPUVE
-              manualmente en repuve.gob.mx.
+              El portal oficial bloquea consultas hechas desde servidores
+              externos por seguridad. Tú desde tu celular sí puedes
+              consultarlo en segundos — el preview te muestra un botón
+              directo, copias tu placa, y subes la captura del resultado
+              de vuelta a Verificarro para que la integremos a tu reporte.
             </p>
           </details>
 
