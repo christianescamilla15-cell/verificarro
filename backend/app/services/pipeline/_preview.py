@@ -5,6 +5,7 @@ solo consulta REPUVE. Los helpers aquí están separados del flow
 principal para que orchestrator.py se quede compacto.
 """
 
+import asyncio
 import logging
 
 from app.models.report import (
@@ -35,19 +36,57 @@ PREVIEW_PLACEHOLDER_LISTING = ListingData(
 )
 
 
+_PREVIEW_REPUVE_TIMEOUT_SEC = 8.0
+
+
 async def run_repuve_preview(
     plate: str | None, vin: str | None
 ) -> RepuveResult:
     """Wrapper resiliente de `repuve.query` para el preview pipeline.
 
-    Si REPUVE falla por reCaptcha u otra cosa, devolvemos
-    `queried=False` con el error capturado. La UI muestra el aviso y
-    el usuario igual puede pagar.
+    ## Por que timeout corto
+
+    El sidecar REPUVE Vultr tiene timeout default de 120s (config
+    `repuve_scraper_timeout_sec`) — apropiado para batch tools pero
+    NO para el flow del scan inicial donde el user esta esperando ver
+    su preview.
+
+    Empiricamente (sesion 2026-05-03 telemetry) el sidecar tiene 0%
+    hit rate por IP datacenter penalty del reCaptcha de Google, asi
+    que esperar 120s NUNCA da un resultado positivo — solo bloquea
+    al user 2 minutos hasta degradar a `captcha_required`.
+
+    Mejor: timeout 8s (suficiente para el caso optimista donde Google
+    esta lenient). Si no responde en 8s degradamos a `queried=False`
+    y el frontend muestra el CTA al flow manual de subir screenshot
+    del modal REPUVE (`RepuveScreenshotUploader`).
+
+    UX antes: scan → 60-120s spinner "leyendo IA" → preview con
+    captcha_required (mismo resultado que tendria en 8s).
+    UX ahora: scan → ~10s spinner → preview con CTA inmediato.
     """
     try:
-        return await repuve.query(plate=plate, vin=vin)
+        return await asyncio.wait_for(
+            repuve.query(plate=plate, vin=vin),
+            timeout=_PREVIEW_REPUVE_TIMEOUT_SEC,
+        )
+    except asyncio.TimeoutError:
+        logger.info(
+            "REPUVE preview timeout (%.0fs) — degradando a queried=False",
+            _PREVIEW_REPUVE_TIMEOUT_SEC,
+        )
+        return RepuveResult(
+            queried=False,
+            plate=plate,
+            vin=vin,
+            raw_status="captcha_required",
+            error=(
+                "REPUVE no respondio rapido. Usa el CTA 'Abrir REPUVE "
+                "oficial' abajo y sube la captura del modal."
+            ),
+        )
     except Exception as exc:  # noqa: BLE001
-        logger.exception("REPUVE query falló durante preview")
+        logger.exception("REPUVE query fallo durante preview")
         return RepuveResult(
             queried=False,
             plate=plate,
