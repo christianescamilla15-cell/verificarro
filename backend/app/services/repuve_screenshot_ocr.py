@@ -160,10 +160,23 @@ async def scan_repuve_screenshot(
                 "data": image_base64,
             },
         }
+        # Para PDFs reforzamos el output JSON en el prompt porque
+        # output_config.json_schema NO se respeta consistentemente
+        # con bloques `type: "document"`.
         prompt_text = (
-            "Lee el contenido del PDF descargado de REPUVE (resultado "
-            "de consulta vehicular) y extrae el texto del modal/seccion "
-            "principal con el resultado."
+            "Lee el PDF (es un reporte de REPUVE descargado por el "
+            "usuario) y extrae el texto del bloque principal con el "
+            "resultado de la consulta vehicular.\n\n"
+            "RESPONDE SOLAMENTE CON UN JSON valido (sin markdown, "
+            "sin ```, sin texto introductorio). El JSON DEBE tener "
+            "exactamente este shape:\n"
+            '{"text":"contenido textual del resultado", '
+            '"found_modal":true, '
+            '"confidence":"high", '
+            '"notes":"explicacion corta"}\n\n'
+            "Recuerda: found_modal=true si el PDF es de REPUVE "
+            "(sin importar que sea PDF y no modal pop-up). "
+            "found_modal=false SOLO si no es de REPUVE."
         )
     else:
         content_block = {
@@ -179,18 +192,19 @@ async def scan_repuve_screenshot(
             "extrae su contenido textual."
         )
 
-    client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
-    response = await client.messages.create(
-        model=settings.claude_vision_model,
-        max_tokens=600,
-        system=_SYSTEM_PROMPT,
-        output_config={
-            "format": {
-                "type": "json_schema",
-                "schema": _RESPONSE_SCHEMA,
-            }
-        },
-        messages=[
+    # NOTA: para bloques `type: "document"` (PDFs) Anthropic no
+    # respeta `output_config.json_schema` consistentemente — Claude
+    # devuelve texto plano con markdown wrapper. Para imagenes
+    # (`type: "image"`) si lo respeta. Por eso solo aplicamos
+    # output_config para imagenes; para PDFs reforzamos el prompt
+    # para que devuelva JSON puro y dejamos que parse_screenshot_response
+    # extraiga el JSON tolerando markdown code blocks.
+    is_pdf = media_type == "application/pdf"
+    create_kwargs: dict = {
+        "model": settings.claude_vision_model,
+        "max_tokens": 800,
+        "system": _SYSTEM_PROMPT,
+        "messages": [
             {
                 "role": "user",
                 "content": [
@@ -199,14 +213,88 @@ async def scan_repuve_screenshot(
                 ],
             }
         ],
-    )
+    }
+    if not is_pdf:
+        create_kwargs["output_config"] = {
+            "format": {
+                "type": "json_schema",
+                "schema": _RESPONSE_SCHEMA,
+            }
+        }
+
+    client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+    response = await client.messages.create(**create_kwargs)
 
     text_blocks = [b for b in response.content if getattr(b, "type", "") == "text"]
     if not text_blocks:
         raise RuntimeError("Claude no devolvio texto")
-    raw = getattr(text_blocks[0], "text", "")
+    # Concatenar todos los text blocks — Claude puede separar la
+    # explicacion del PDF en multiples bloques antes del JSON final.
+    raw = "\n".join(getattr(b, "text", "") for b in text_blocks)
+
+    # Log defensivo para diagnostico futuro: primeros 300 chars del raw
+    logger.info(
+        "scan_repuve_screenshot raw response (first 300 chars): %r",
+        raw[:300],
+    )
 
     return parse_screenshot_response(raw)
+
+
+def _extract_json(raw: str) -> str | None:
+    """Extrae el bloque JSON de una respuesta de Claude que puede traer
+    wrappers markdown o texto introductorio.
+
+    Para PDFs Claude no respeta `output_config.json_schema` consistentemente
+    y devuelve algo tipo:
+
+        Aqui esta el JSON solicitado:
+        ```json
+        {"text": "...", ...}
+        ```
+
+    Estrategias en cascada:
+      1. Parsear el raw entero (ideal — funciona para imagenes con schema)
+      2. Buscar bloque ```json ... ``` o ``` ... ```
+      3. Buscar el primer `{` y el ultimo `}` y extraer ese substring
+      4. None si nada parece JSON
+    """
+    if not raw or not raw.strip():
+        return None
+
+    # 1: tal cual
+    try:
+        json.loads(raw)
+        return raw
+    except json.JSONDecodeError:
+        pass
+
+    # 2: markdown code block ```json ... ``` o ``` ... ```
+    fence_match = re.search(
+        r"```(?:json)?\s*(\{.*?\})\s*```",
+        raw,
+        re.DOTALL | re.IGNORECASE,
+    )
+    if fence_match:
+        candidate = fence_match.group(1)
+        try:
+            json.loads(candidate)
+            return candidate
+        except json.JSONDecodeError:
+            pass
+
+    # 3: primer { hasta ultimo } (greedy para acomodar JSON anidado)
+    first = raw.find("{")
+    last = raw.rfind("}")
+    if first != -1 and last != -1 and last > first:
+        candidate = raw[first : last + 1]
+        try:
+            json.loads(candidate)
+            return candidate
+        except json.JSONDecodeError:
+            pass
+
+    return None
 
 
 def parse_screenshot_response(raw_json: str) -> RepuveScreenshotResult:
@@ -216,9 +304,21 @@ def parse_screenshot_response(raw_json: str) -> RepuveScreenshotResult:
     - JSON malformado (devuelve found_modal=false, low confidence)
     - confidence fuera del enum (downgrade a low)
     - text excesivamente largo (truncamos a 8KB)
+    - Markdown code blocks alrededor del JSON (Claude PDFs)
+    - Texto introductorio antes del JSON ("Aqui esta el JSON:")
     """
+    extracted = _extract_json(raw_json)
+    if extracted is None:
+        # Devolver el raw truncado en notes para que veamos en logs
+        # que respondio Claude exactamente cuando ningun JSON se extrae
+        sample = (raw_json or "").strip()[:200]
+        return RepuveScreenshotResult(
+            text="", found_modal=False, confidence="low",
+            notes=f"Claude no devolvio JSON parseable. Sample: {sample!r}",
+        )
+
     try:
-        data = json.loads(raw_json)
+        data = json.loads(extracted)
     except json.JSONDecodeError:
         return RepuveScreenshotResult(
             text="", found_modal=False, confidence="low",

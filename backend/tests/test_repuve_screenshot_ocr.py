@@ -52,7 +52,36 @@ def test_parse_invalid_json_returns_safe_default() -> None:
     assert r.found_modal is False
     assert r.text == ""
     assert r.confidence == "low"
-    assert "no-JSON" in r.notes
+    # Notes ahora incluye un sample del raw para debug
+    assert "JSON" in r.notes
+    assert "not json at all" in r.notes
+
+
+def test_parse_extracts_json_from_markdown_fence() -> None:
+    """Claude PDFs devuelven el JSON envuelto en ```json ... ```."""
+    raw = (
+        "Aqui esta el JSON solicitado:\n"
+        "```json\n"
+        '{"text": "Sin reportes", "found_modal": true, '
+        '"confidence": "high", "notes": "PDF claro"}\n'
+        "```"
+    )
+    r = parse_screenshot_response(raw)
+    assert r.found_modal is True
+    assert r.text == "Sin reportes"
+    assert r.confidence == "high"
+
+
+def test_parse_extracts_json_from_text_with_intro() -> None:
+    """Claude a veces precede el JSON con texto, sin markdown fence."""
+    raw = (
+        "Despues de leer el documento, aqui esta el resultado:\n\n"
+        '{"text": "Vehiculo robado", "found_modal": true, '
+        '"confidence": "medium", "notes": ""}'
+    )
+    r = parse_screenshot_response(raw)
+    assert r.found_modal is True
+    assert "robado" in r.text.lower()
 
 
 def test_parse_invalid_confidence_downgrades_to_low() -> None:
