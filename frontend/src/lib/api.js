@@ -25,6 +25,13 @@ export function clearToken() {
   localStorage.removeItem(TOKEN_KEY)
 }
 
+// Render Starter duerme el container tras 15min sin trafico. El primer
+// request despues de eso tarda 30-60s en despertar el server. Browsers
+// mobile cortan fetch sin response a los ~30s y el user ve "Sin conexion
+// al servidor" cuando en realidad solo necesitamos esperar el cold start.
+// Damos 90s de margen para POSTs que envian imagen y 30s para GETs.
+const REQUEST_TIMEOUT_MS = 90_000
+
 async function request(path, { method = 'GET', body, headers = {} } = {}) {
   const token = getToken()
   const finalHeaders = {
@@ -32,20 +39,32 @@ async function request(path, { method = 'GET', body, headers = {} } = {}) {
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...headers,
   }
+  // AbortController para no depender del default del browser (que
+  // varia: Chrome desktop 300s, Chrome mobile 30-60s, Safari mobile 60s)
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
   let response
   try {
     response = await fetch(`${API_BASE}${path}`, {
       method,
       headers: finalHeaders,
       body: body !== undefined ? JSON.stringify(body) : undefined,
+      signal: controller.signal,
     })
   } catch (err) {
+    const isAbort = err.name === 'AbortError'
     return {
       ok: false,
       status: 0,
-      error: 'Sin conexión al servidor',
+      error: isAbort
+        ? `Servidor tardó más de ${REQUEST_TIMEOUT_MS / 1000}s en responder. ` +
+          'Si es la primera consulta del día, el servidor estaba "dormido" — ' +
+          'reintenta y la siguiente debería ser rápida.'
+        : 'Sin conexión al servidor',
       detail: err.message,
     }
+  } finally {
+    clearTimeout(timeoutId)
   }
 
   // Parseo defensivo: algunos endpoints (PDF) no devuelven JSON
@@ -74,6 +93,32 @@ async function request(path, { method = 'GET', body, headers = {} } = {}) {
 export const api = {
   get: (path) => request(path),
   post: (path, body) => request(path, { method: 'POST', body }),
+}
+
+/**
+ * Wake-up del backend Render. Render Starter duerme el container tras
+ * 15min sin trafico. El primer request real (con imagen) puede tardar
+ * 30-60s; este ping liviano (GET /health, ~1KB) lo despierta y queda
+ * caliente para cuando el user dispare el scan real ~10-30s despues.
+ *
+ * Fire-and-forget: no bloquea el render, no espera respuesta. Si falla
+ * (red caida, dominio mal) NO afecta nada — el siguiente request lo
+ * reintentaria y mostraria su propio error.
+ *
+ * Llamar UNA vez al montar la app raiz.
+ */
+export function warmupBackend() {
+  if (!API_BASE) return // dev local con proxy de vite, no necesita warm-up
+  // No usamos `request()` para evitar contar este ping en cualquier
+  // metric global de errores. Fetch directo, signal con timeout corto
+  // (5s) — si en 5s no respondio el container esta dormido y el user
+  // tendra que esperar el cold start completo en su primer request real.
+  const controller = new AbortController()
+  setTimeout(() => controller.abort(), 5_000)
+  fetch(`${API_BASE}/health`, { signal: controller.signal })
+    .catch(() => {
+      // Silencioso: warm-up es best-effort
+    })
 }
 
 /** Helper específico: descargar PDF como Blob. */

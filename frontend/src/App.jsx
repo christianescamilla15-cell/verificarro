@@ -1,10 +1,11 @@
-import { lazy, Suspense } from 'react'
+import { lazy, Suspense, useEffect } from 'react'
 import { Route, Routes } from 'react-router-dom'
 import { Analytics } from '@vercel/analytics/react'
 import { SpeedInsights } from '@vercel/speed-insights/react'
 import Header from './components/Header.jsx'
 import Spinner from './components/Spinner.jsx'
 import WhatsAppButton from './components/WhatsAppButton.jsx'
+import { warmupBackend } from './lib/api.js'
 
 // MOD-021: code splitting por route. Cada page se carga on-demand,
 // reduciendo el bundle inicial. La landing (`/`) sigue siendo eager
@@ -35,6 +36,15 @@ function RouteFallback() {
 
 
 export default function App() {
+  // Wake-up del Render Starter al montar la app. Render duerme el
+  // container tras 15min sin trafico — un GET /health al cargar la
+  // landing despierta el server, asi cuando el user dispara el scan
+  // (10-30s despues) ya esta caliente. Sin esto el primer scan del
+  // dia tarda 30-60s y el browser mobile lo corta como "Sin conexion".
+  useEffect(() => {
+    warmupBackend()
+  }, [])
+
   return (
     <div className="app">
       <Header />
