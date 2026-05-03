@@ -154,7 +154,35 @@ _RESPONSE_SCHEMA: dict = {
             "enum": ["low", "medium", "high"],
         },
         "notes": {"type": "string"},
-        "extra": {"type": "object"},
+        # Anthropic strict json_schema exige additionalProperties:false
+        # en TODOS los sub-objects (no solo top-level) Y NO acepta True
+        # (nuevo validador post-2026-05). Un sub-object {"type":"object"}
+        # generico revienta con BadRequestError 400 que MATA el worker
+        # uvicorn → container restart → frontend ve "Sin conexion al
+        # servidor" (fetch network error). Detectado en logs Render
+        # runtime 2026-05-03.
+        #
+        # Para `extra` (que puede traer multiples campos de invoice):
+        # enumeramos todas las propiedades conocidas + additionalProperties:false.
+        # Si Claude intenta devolver un campo no listado, json_schema lo
+        # rechaza — pero en la practica el prompt enumera estos campos
+        # explicitamente.
+        "extra": {
+            "type": "object",
+            "properties": {
+                "folio_fiscal_uuid": {"type": "string"},
+                "rfc_emisor": {"type": "string"},
+                "rfc_receptor": {"type": "string"},
+                "fecha": {"type": "string"},
+                "total": {"type": "number"},
+                "marca": {"type": "string"},
+                "modelo": {"type": "string"},
+                "ano": {"type": "string"},
+                "anio": {"type": "string"},
+                "niv": {"type": "string"},
+            },
+            "additionalProperties": False,
+        },
     },
     "required": ["type", "value", "confidence", "notes", "extra"],
     "additionalProperties": False,

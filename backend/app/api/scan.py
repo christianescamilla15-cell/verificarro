@@ -290,10 +290,30 @@ async def _resolve_plate_and_vin(
         try:
             result = await smart_scan(body.image_base64, body.media_type)
         except RuntimeError as exc:
-            logger.exception("Smart scan falló")
+            logger.exception("Smart scan falló (RuntimeError)")
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail=f"No pude procesar la imagen: {exc}",
+            ) from exc
+        except Exception as exc:  # noqa: BLE001
+            # CRITICO: cualquier excepcion NO atrapada (anthropic.BadRequestError,
+            # APIStatusError, network timeouts, etc.) MATA el worker uvicorn,
+            # el container Render se reinicia y el cliente ve "Sin conexion al
+            # servidor" (fetch network error sin response).
+            #
+            # En lugar de propagar y crashear, devolvemos 502 con detail claro.
+            # El frontend mostrara el detail tecnico al user en lugar de error
+            # generico de red.
+            logger.exception(
+                "Smart scan crashed unexpectedly: %s: %s",
+                type(exc).__name__, str(exc)[:300],
+            )
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=(
+                    f"Error procesando imagen ({type(exc).__name__}): "
+                    f"{str(exc)[:200]}"
+                ),
             ) from exc
 
         # Log estructurado para diagnosticar via Render API: que devolvio Claude
@@ -351,6 +371,14 @@ async def _resolve_plate_and_vin(
             )
         except RuntimeError as exc:
             logger.warning("plate_ocr fallback fallo: %s", exc)
+            plate_result = None
+        except Exception as exc:  # noqa: BLE001
+            # Mismo guard que en smart_scan arriba — atrapamos
+            # anthropic.BadRequestError y similares para no matar el worker.
+            logger.warning(
+                "plate_ocr fallback crashed: %s: %s",
+                type(exc).__name__, str(exc)[:200],
+            )
             plate_result = None
 
         if plate_result:
