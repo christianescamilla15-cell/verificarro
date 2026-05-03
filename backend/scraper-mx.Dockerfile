@@ -40,11 +40,23 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 WORKDIR /app
 
-# System deps base: curl para healthcheck + las libs Linux para
-# Chromium. `playwright install-deps` necesita corredor con permisos
-# apt — corremos como root aquí (build time).
+# System deps base + libs Linux que Chromium necesita.
+#
+# `playwright install --with-deps` falla en python:3.12-slim porque
+# espera nombres de paquetes Ubuntu (ttf-ubuntu-font-family, ttf-unifont)
+# que no existen en Debian Bookworm. Workaround: instalamos las libs
+# manualmente con nombres Debian y después corremos `playwright install
+# chromium` (sin `--with-deps`).
+#
+# Lista derivada de `playwright install --with-deps --dry-run chromium`
+# en Debian. fonts-liberation reemplaza ttf-ubuntu-font-family.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
+    libnss3 libnspr4 libdbus-1-3 libatk1.0-0 libatk-bridge2.0-0 \
+    libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 \
+    libxfixes3 libxrandr2 libgbm1 libpango-1.0-0 libcairo2 \
+    libasound2 libatspi2.0-0 \
+    fonts-liberation fonts-unifont fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
 
 # Crear non-root user temprano para chown selectivo después.
@@ -54,10 +66,10 @@ RUN useradd -m -u 1001 pwuser
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Install Chromium + libs Linux (~30 paquetes apt). PLAYWRIGHT_BROWSERS_PATH
-# arriba hace que vaya a /ms-playwright en lugar de /root/.cache. Después
-# chown para que pwuser tenga acceso.
-RUN playwright install --with-deps chromium && \
+# Install Chromium binary (sin --with-deps porque ya instalamos las libs
+# arriba con nombres Debian correctos). PLAYWRIGHT_BROWSERS_PATH arriba
+# hace que vaya a /ms-playwright en lugar de /root/.cache.
+RUN playwright install chromium && \
     chown -R pwuser:pwuser /ms-playwright
 
 # Copiar SOLO los módulos que el sidecar necesita. NO copiamos
