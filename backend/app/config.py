@@ -181,6 +181,26 @@ class Settings(BaseSettings):
     )
     smtp_from_name: str = Field(default="Verificarro", alias="SMTP_FROM_NAME")
 
+    # --- REPUVE scraper sidecar (MOD-040, gob.mx WAF workaround) ---
+    # gob.mx WAF bloquea IPs no-mexicanas, así que REPUVE auto-scrape
+    # falla 100% desde Render Oregon. Sidecar service en host MX
+    # (Vultr CDMX, Hostinger MX, etc.) corre el scraper desde IP MX
+    # y devuelve el resultado vía HTTP. Si REPUVE_SCRAPER_URL está set,
+    # el backend dispatcha al sidecar; si no, intenta local (degrada
+    # gracefully a queried=False).
+    repuve_scraper_url: str = Field(
+        default="", alias="REPUVE_SCRAPER_URL",
+        description="URL completa del sidecar, e.g. https://scraper-mx.example.com",
+    )
+    repuve_scraper_token: str = Field(
+        default="", alias="REPUVE_SCRAPER_TOKEN",
+        description="Bearer token compartido entre backend y sidecar",
+    )
+    repuve_scraper_timeout_sec: float = Field(
+        default=120.0, alias="REPUVE_SCRAPER_TIMEOUT_SEC",
+        description="Timeout HTTP del backend al llamar al sidecar",
+    )
+
     # --- PII encryption (MOD-032) ---
     # Fernet key (32-byte url-safe base64) para encriptar PII en DB
     # (Payment.payer_email, plate, vin). Si vacío en dev, fallback

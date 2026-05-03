@@ -85,6 +85,15 @@ _last_request_at: float = 0.0
 async def query(plate: str | None = None, vin: str | None = None) -> RepuveResult:
     """Consulta REPUVE por placa o NIV. Devuelve `RepuveResult` siempre.
 
+    ### Dispatch (MOD-040)
+
+    Si `REPUVE_SCRAPER_URL` está set, dispatcha al sidecar microservicio
+    en host MX (Vultr CDMX, etc.) que tiene IP mexicana — necesario
+    porque el WAF de gob.mx bloquea IPs no-mexicanas. Si NO está set,
+    intenta scrape local (degrada a queried=False si IP no-MX).
+
+    ### Retry loop (modo local)
+
     Implementa retry loop cuando el captcha bypass es rechazado por
     Google `siteverify`. Tasa esperada por intento individual:
       - Sin stealth/proxy: ~0-30%
@@ -117,6 +126,16 @@ async def query(plate: str | None = None, vin: str | None = None) -> RepuveResul
         )
 
     settings = get_settings()
+
+    # MOD-040: dispatch a sidecar MX si está configurado.
+    if settings.repuve_scraper_url.strip():
+        return await _query_remote(
+            plate_norm, vin_norm,
+            url=settings.repuve_scraper_url.strip(),
+            token=settings.repuve_scraper_token.strip(),
+            timeout=settings.repuve_scraper_timeout_sec,
+        )
+
     max_attempts = max(1, settings.repuve_retry_attempts)
     last_result: RepuveResult | None = None
 
@@ -153,6 +172,74 @@ async def query(plate: str | None = None, vin: str | None = None) -> RepuveResul
     return last_result or RepuveResult(
         queried=False, plate=plate_norm, vin=vin_norm,
         error="Sin respuesta de REPUVE",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Remote dispatch (MOD-040 — sidecar MX)
+
+
+async def _query_remote(
+    plate: str | None,
+    vin: str | None,
+    *,
+    url: str,
+    token: str,
+    timeout: float,
+) -> RepuveResult:
+    """Llama al sidecar `verificarro-scraper-mx` via HTTP.
+
+    El sidecar reusa el mismo `query()` local pero corre en host con IP
+    mexicana, evitando el WAF de gob.mx. Failure-tolerant: si el sidecar
+    no responde, devolvemos RepuveResult con error claro para que el
+    frontend muestre el link manual.
+    """
+    import httpx
+
+    endpoint = url.rstrip("/") + "/scrape/repuve"
+    headers = {"Content-Type": "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    payload = {"plate": plate, "vin": vin}
+
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.post(endpoint, json=payload, headers=headers)
+    except (httpx.TimeoutException, httpx.NetworkError) as exc:
+        logger.warning(
+            "Sidecar REPUVE no respondió (%s) — degradando a queried=False", exc,
+        )
+        return RepuveResult(
+            queried=False, plate=plate, vin=vin,
+            error=f"Sidecar timeout/network: {exc}",
+        )
+
+    if response.status_code != 200:
+        logger.warning(
+            "Sidecar REPUVE devolvió %d: %s",
+            response.status_code, response.text[:200],
+        )
+        return RepuveResult(
+            queried=False, plate=plate, vin=vin,
+            error=f"Sidecar HTTP {response.status_code}",
+        )
+
+    try:
+        data = response.json()
+    except ValueError:
+        return RepuveResult(
+            queried=False, plate=plate, vin=vin,
+            error="Sidecar devolvió respuesta no-JSON",
+        )
+
+    return RepuveResult(
+        queried=bool(data.get("queried")),
+        plate=data.get("plate"),
+        vin=data.get("vin"),
+        is_stolen=data.get("is_stolen"),
+        has_legal_status=data.get("has_legal_status"),
+        raw_status=data.get("raw_status"),
+        error=data.get("error"),
     )
 
 
