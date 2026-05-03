@@ -25,9 +25,16 @@ en el flow normal de `POST /api/scan/plate` o `/api/analyze`.
 
 - HTML max 200 KB (modal REPUVE real ronda <50 KB, margen 4x).
 - Rate limit 30/min, 200/hora por IP — mismo orden que `/scan/plate`.
-"""
 
-from __future__ import annotations
+## NOTA: NO usar `from __future__ import annotations`
+
+Combinacion `from __future__ import annotations` + Pydantic 2.9 +
+FastAPI introspeccion de tipos causa `PydanticUndefinedAnnotation`
+en runtime cuando el modelo Pydantic se referencia desde la firma
+del endpoint. El error rompe el startup completo de la app.
+Convencion del repo: los archivos en `app/api/` usan sintaxis
+nativa Python 3.10+ sin el future import.
+"""
 
 import logging
 from typing import Literal

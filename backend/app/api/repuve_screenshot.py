@@ -12,9 +12,16 @@ Claude Vision OCR el texto del modal → pasa al parser canonico
 Chrome extension solo cubre desktop (no existe en Chrome mobile) y
 exige instalacion previa. El screenshot funciona en cualquier
 dispositivo, sin instalacion. Costo marginal ~$0.005 USD por scan.
-"""
 
-from __future__ import annotations
+## NOTA: NO usar `from __future__ import annotations`
+
+Combinacion `from __future__ import annotations` + Pydantic 2.9 +
+FastAPI introspeccion de tipos causa `PydanticUndefinedAnnotation`
+en runtime cuando el modelo Pydantic se referencia desde la firma
+del endpoint. El error rompe el startup completo de la app.
+Convencion del repo: los archivos en `app/api/` usan sintaxis
+nativa Python 3.10+ sin el future import.
+"""
 
 import logging
 from typing import Literal
