@@ -126,6 +126,13 @@ async def screenshot_result(
             detail="Servicio de OCR temporalmente no disponible",
         ) from exc
 
+    # Log estructurado para debug — crucial cuando el user reporta
+    # "no leyo mi PDF" sabemos exactamente que devolvio Claude.
+    logger.info(
+        "repuve_ocr result: found_modal=%s confidence=%s text_len=%d notes=%r",
+        ocr.found_modal, ocr.confidence, len(ocr.text), ocr.notes[:300],
+    )
+
     # Caso 1: OCR no encontro modal → no llamamos parser, devolvemos
     # error claro para que el frontend pida re-tomar la foto.
     if not ocr.found_modal:

@@ -44,38 +44,58 @@ from app.config import get_settings
 logger = logging.getLogger(__name__)
 
 
-_SYSTEM_PROMPT = """Eres un experto en leer capturas de pantalla \
-(screenshots) del portal de consulta ciudadana REPUVE \
-(Registro Publico Vehicular de Mexico).
+_SYSTEM_PROMPT = """Eres un experto en leer documentos del portal de \
+consulta ciudadana REPUVE (Registro Publico Vehicular de Mexico, \
+https://www2.repuve.gob.mx:8443/ciudadania/).
 
-El portal vive en https://www2.repuve.gob.mx:8443/ciudadania/ y, \
-despues de que el usuario consulta una placa o NIV, muestra un \
-modal de resultado con informacion del vehiculo. Tu tarea es leer \
-ese modal y extraer su contenido textual completo.
+El usuario te puede enviar el resultado de una consulta REPUVE en \
+DOS formatos diferentes — ambos validos:
 
-LO QUE DEBES BUSCAR EN EL SCREENSHOT:
+(A) CAPTURA DE PANTALLA del modal de resultado (JPG/PNG/WebP):
+    Aparece como un recuadro pop-up sobre el portal con:
+    - Titulo tipo "Resultado de la consulta" o similar
+    - Texto del estatus del vehiculo
+    - Datos basicos del auto
 
-- Un modal o recuadro con el resultado de la consulta REPUVE
-- Posibles textos clave:
-  * "Sin reportes" / "No presenta reportes" / "Sin reporte de robo"
-  * "Vehiculo robado" / "Reporte de robo activo" / "Reporte de robo \
-    vigente"
-  * "No se encontro" / "Sin informacion" / "No existe registro"
-  * "Situacion legal: Regular" / "Vigente" / "Irregular"
-  * Marca, modelo, anio, placa, NIV/serie del vehiculo
+(B) PDF EXPORTADO desde el boton "Exportar a PDF" del portal:
+    Es un documento oficial con:
+    - Header con escudo nacional MX y "REPUVE" o "Secretariado \
+      Ejecutivo del SNSP"
+    - Seccion de "Resultado de la consulta" o "Datos del vehiculo"
+    - Texto del estatus
+    - Footer con fecha de consulta y datos legales
+
+Tu tarea es leer el documento (sea cual sea el formato) y extraer \
+el contenido textual del bloque PRINCIPAL con el resultado de la \
+consulta vehicular.
+
+CONTENIDO QUE DEBES EXTRAER (cualquier formato):
+- "Sin reportes" / "No presenta reportes" / "Sin reporte de robo"
+- "Vehiculo robado" / "Reporte de robo activo" / "Reporte de robo \
+  vigente" / "Reportado como robado"
+- "No se encontro" / "Sin informacion" / "No existe registro" / \
+  "Vehiculo no inscrito"
+- "Situacion legal: Regular" / "Vigente" / "Irregular"
+- Marca, modelo, anio, placa, NIV/serie del vehiculo
 
 REGLAS:
-1. Si la foto NO es de un modal de REPUVE (es otro sitio, pantalla \
-en blanco, pagina cargando, etc.) → found_modal=false, text="" y \
-explica en notes.
-2. Conserva los acentos y mayusculas originales del modal.
-3. NO inventes datos. Si un campo no esta visible, no lo agregues.
-4. Si el modal esta cortado o ilegible, found_modal=true pero \
-confidence=low y describe el problema en notes.
+1. Si el documento NO es de REPUVE (es otro sitio, otro PDF, foto \
+random, pantalla en blanco) → found_modal=false, text="", explica \
+en notes que NO viste contenido REPUVE.
+2. Si el documento ES de REPUVE — sea screenshot del modal O PDF \
+exportado — found_modal=true. NO importa el formato, solo importa \
+que el contenido sea de REPUVE.
+3. Conserva acentos y mayusculas originales.
+4. NO inventes datos. Si un campo no esta visible, no lo agregues.
+5. Si esta cortado o ilegible, found_modal=true pero confidence=low \
+y describe el problema en notes.
+6. El field `found_modal` es heredado del nombre original — \
+interpretarlo como "este documento ES un resultado REPUVE valido", \
+no literalmente "vi un modal pop-up".
 
 Output: JSON exactamente con este shape:
 {
-  "text": "contenido textual del modal",
+  "text": "contenido textual del resultado REPUVE",
   "found_modal": true | false,
   "confidence": "low" | "medium" | "high",
   "notes": "explicacion corta en espanol"
