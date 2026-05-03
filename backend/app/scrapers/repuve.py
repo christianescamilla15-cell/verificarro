@@ -332,7 +332,15 @@ async def _query_remote(
 
 async def _run_query(plate: str | None, vin: str | None) -> RepuveResult:
     settings = get_settings()
-    from playwright.async_api import async_playwright
+
+    # rebrowser-playwright drop-in (Step 2 del fix plan tras diagnóstico).
+    # Corrige los leaks runtimeEnableLeak + pwInitScripts que son los
+    # que Cloudflare/DataDome/Google reCaptcha v3 usan principalmente.
+    # Activar via USE_REBROWSER_PLAYWRIGHT=true (solo en sidecar Vultr).
+    if os.environ.get("USE_REBROWSER_PLAYWRIGHT", "").lower() == "true":
+        from rebrowser_playwright.async_api import async_playwright
+    else:
+        from playwright.async_api import async_playwright
 
     # Args de stealth: --disable-blink-features=AutomationControlled
     # esconde el flag más obvio que Google detecta.
@@ -361,13 +369,25 @@ async def _run_query(plate: str | None, vin: str | None) -> RepuveResult:
     profile_dir = settings.playwright_profile_dir
     Path(profile_dir).mkdir(parents=True, exist_ok=True)
 
+    # Step 3 fix: viewport randomization. El bot detector flagga el
+    # viewport hardcoded 1280x720 como "default Playwright values".
+    # Random entre tamaños comunes de laptop/desktop reales.
+    common_viewports = [
+        {"width": 1366, "height": 768},   # más común laptop
+        {"width": 1440, "height": 900},   # MacBook
+        {"width": 1536, "height": 864},   # común Win
+        {"width": 1600, "height": 900},   # común Win
+        {"width": 1920, "height": 1080},  # Full HD
+    ]
+    viewport = random.choice(common_viewports)
+
     context_kwargs = {
         "user_data_dir": profile_dir,
         "headless": settings.playwright_headless,
         "args": launch_args,
         "user_agent": _USER_AGENT,
         "locale": "es-MX",
-        "viewport": {"width": 1280, "height": 900},
+        "viewport": viewport,
         "ignore_https_errors": True,
         "timezone_id": "America/Mexico_City",
         "geolocation": {"latitude": 19.4326, "longitude": -99.1332},

@@ -32,8 +32,14 @@ from __future__ import annotations
 # stealth — referencias en cada sección.
 _STEALTH_SCRIPT = r"""
 // === navigator.webdriver: el flag más obvio ===
+// IMPORTANTE: Chrome real devuelve `false`, NO `undefined`. El bot
+// detector de rebrowser explícitamente flagga `=== undefined` como
+// "you have it deleted manually" — eso es señal bot. Chrome stable
+// retorna boolean false. Diagnóstico real:
+//   typeof navigator.webdriver = "boolean", value = false  (real Chrome)
+//   typeof navigator.webdriver = "undefined"                (mi bug)
 Object.defineProperty(navigator, 'webdriver', {
-    get: () => undefined,
+    get: () => false,
     configurable: true,
 });
 
@@ -245,6 +251,44 @@ try {
                 ];
             });
         };
+    }
+} catch (e) {}
+
+// === navigator.userAgentData (Step 3 fix) ===
+// Bot detector flagga "Google Chrome is not presented in
+// navigator.userAgentData. You might be using Google Chrome for Testing".
+// Real Chrome stable expone 3 brands (Chromium + Not?A_Brand + Google Chrome).
+// Headless/Testing solo expone 2. Spoof para que mostremos las 3.
+try {
+    if (navigator.userAgentData) {
+        const origGetHighEntropyValues = navigator.userAgentData.getHighEntropyValues
+            ? navigator.userAgentData.getHighEntropyValues.bind(navigator.userAgentData)
+            : null;
+        const fakeBrands = [
+            { brand: 'Chromium', version: '130' },
+            { brand: 'Not?A_Brand', version: '99' },
+            { brand: 'Google Chrome', version: '130' },
+        ];
+        Object.defineProperty(navigator.userAgentData, 'brands', {
+            get: () => fakeBrands,
+            configurable: true,
+        });
+        // Patch fullVersionList también
+        if (origGetHighEntropyValues) {
+            navigator.userAgentData.getHighEntropyValues = function (hints) {
+                return origGetHighEntropyValues(hints).then(data => {
+                    if (data && Array.isArray(data.fullVersionList)) {
+                        data.fullVersionList = [
+                            { brand: 'Chromium', version: '130.0.6723.31' },
+                            { brand: 'Not?A_Brand', version: '99.0.0.0' },
+                            { brand: 'Google Chrome', version: '130.0.6723.31' },
+                        ];
+                    }
+                    if (data && data.brands) data.brands = fakeBrands;
+                    return data;
+                });
+            };
+        }
     }
 } catch (e) {}
 """
