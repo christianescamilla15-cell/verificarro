@@ -53,6 +53,7 @@ export default function PlateScanner({ onResult, onClose }) {
   const readyStreakRef = useRef(0)
   const watcherStartedAtRef = useRef(0)
   const inFlightRef = useRef(false)
+  const precheckInFlightRef = useRef(false)
   // MOD-028: ESC + focus trap + restore focus.
   useModalA11y(modalRef, onClose)
   const [stage, setStage] = useState('mode')
@@ -86,6 +87,7 @@ export default function PlateScanner({ onResult, onClose }) {
     }
     prevLumaRef.current = null
     readyStreakRef.current = 0
+    precheckInFlightRef.current = false
   }
 
   useEffect(() => {
@@ -144,7 +146,11 @@ export default function PlateScanner({ onResult, onClose }) {
   }
 
   function tickWatcher() {
-    if (autoCaptureCancelRef.current || inFlightRef.current) return
+    if (
+      autoCaptureCancelRef.current
+      || inFlightRef.current
+      || precheckInFlightRef.current
+    ) return
     const video = videoRef.current
     const canvas = analyzeCanvasRef.current
     if (!video || !canvas || video.readyState < 2) return
@@ -171,7 +177,9 @@ export default function PlateScanner({ onResult, onClose }) {
     if (result.ready) {
       readyStreakRef.current += 1
       if (readyStreakRef.current >= AUTO_CAPTURE_READY_FRAMES) {
-        triggerCapture()
+        // TIER 3: precheck con Haiku ANTES de gastar Sonnet. Si Haiku
+        // dice none/unclear, el watcher sigue mirando.
+        runPrecheck()
         return
       }
     } else {
@@ -183,6 +191,62 @@ export default function PlateScanner({ onResult, onClose }) {
     if (elapsed > AUTO_CAPTURE_FALLBACK_MS) {
       setAutoHint('Capturando (sin verificación previa)')
       triggerCapture()
+    }
+  }
+
+  /**
+   * Precheck barato con Haiku 4.5 antes de gastar Sonnet (TIER 3).
+   *
+   * Solo se llama cuando las heurísticas TIER 1 detectan READY_FRAMES
+   * consecutivos. Manda el frame downscaleado (ya está en analyzeCanvas
+   * 320×240) al endpoint /api/scan/precheck. Costo ~$0.0003 vs $0.005
+   * del smart_scan completo.
+   *
+   * Si Haiku confirma plate/vin/invoice → triggerCapture() con full-res.
+   * Si dice none/unclear → reset streak, watcher sigue mirando.
+   * Si la API falla → fallback a triggerCapture (no bloqueamos al user).
+   */
+  async function runPrecheck() {
+    if (precheckInFlightRef.current || autoCaptureCancelRef.current) return
+    precheckInFlightRef.current = true
+    setAutoHint('Verificando documento…')
+
+    const canvas = analyzeCanvasRef.current
+    if (!canvas) {
+      precheckInFlightRef.current = false
+      triggerCapture()
+      return
+    }
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.7)
+    const base64 = dataUrl.split(',')[1]
+
+    const res = await api.post('/api/scan/precheck', {
+      image_base64: base64,
+      media_type: 'image/jpeg',
+    })
+
+    precheckInFlightRef.current = false
+    if (autoCaptureCancelRef.current) return
+
+    // API falló (red, rate limit, 5xx) → no penalizamos al user, capturamos.
+    if (!res.ok) {
+      triggerCapture()
+      return
+    }
+
+    const detectedType = res.data?.type
+    if (detectedType === 'plate' || detectedType === 'vin' || detectedType === 'invoice') {
+      triggerCapture()
+      return
+    }
+
+    // Falso positivo del TIER 1 — reset streak y sigue mirando.
+    readyStreakRef.current = 0
+    setAutoReady(false)
+    if (detectedType === 'none') {
+      setAutoHint('No veo placa/VIN/factura — reposiciona')
+    } else {
+      setAutoHint('Acerca el documento al centro')
     }
   }
 

@@ -33,7 +33,7 @@ from app.db.models import ReportRecord, ReportStatus
 from app.db.session import SessionDep
 from app.rate_limit import limiter
 from app.services.pipeline import run_preview_pipeline
-from app.services.smart_scanner import smart_scan
+from app.services.smart_scanner import precheck_image, smart_scan
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +84,26 @@ class PlateScanResponse(BaseModel):
     invoice_extra: dict[str, Any] | None = None
 
 
+class PrecheckRequest(BaseModel):
+    """Body de `POST /api/scan/precheck` (TIER 3 auto-capture).
+
+    Imagen pequeña (~256×256 base64) que el watcher client-side manda
+    cuando sus heurísticas detectan un frame "listo" — antes de gastar
+    el smart_scan completo. Haiku 4.5 confirma si vale la pena
+    proceder o si era falso positivo (libro, tarjeta, fondo).
+    """
+
+    image_base64: str = Field(min_length=100)
+    media_type: Literal["image/jpeg", "image/png", "image/webp"] = Field(
+        default="image/jpeg"
+    )
+
+
+class PrecheckResponse(BaseModel):
+    """Respuesta del precheck — solo el tipo detectado."""
+    type: Literal["plate", "vin", "invoice", "none", "unclear"]
+
+
 class SmartScanResponse(BaseModel):
     """Respuesta de `/api/scan/auto` — clasifica la imagen sin disparar
     todavía el pipeline preview. El frontend recibe el `type` detectado y
@@ -96,6 +116,24 @@ class SmartScanResponse(BaseModel):
     confidence: Literal["low", "medium", "high"]
     notes: str
     extra: dict[str, Any] = {}
+
+
+@router.post("/scan/precheck", response_model=PrecheckResponse)
+@limiter.limit("120/minute;1000/hour")
+async def scan_precheck(
+    request: Request, body: PrecheckRequest
+) -> PrecheckResponse:
+    """Pre-clasificación barata con Haiku 4.5 antes de smart_scan.
+
+    El frontend invoca esto cuando sus heurísticas TIER 1 detectan un
+    frame listo — si Haiku confirma que es un documento real, recién
+    entonces se dispara `/scan/auto` o `/scan/plate` con Sonnet.
+
+    Costo: ~$0.0003 USD/call. Rate limit más permisivo que /scan/auto
+    porque cuesta 16-25× menos.
+    """
+    result = await precheck_image(body.image_base64, body.media_type)
+    return PrecheckResponse(type=result.type)
 
 
 @router.post("/scan/auto", response_model=SmartScanResponse)

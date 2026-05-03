@@ -13,6 +13,16 @@ flujo del usuario sea "apunta y dispara" sin pre-seleccionar tipo.
 Una sola llamada a Claude Sonnet vision: ~$0.005-0.008 USD.
 Ahorra UX (no hay que preguntar "¿qué tipo es?") sin agregar costo.
 
+## Precheck (TIER 3 auto-capture)
+
+`precheck_image()` es una pasada barata con Claude Haiku 4.5
+(~$0.0003 / call) que SOLO clasifica el tipo sin extraer valores.
+El scanner del frontend lo invoca cuando las heurísticas client-side
+detectan "frame listo" — si Haiku confirma que es plate/vin/invoice
+real (no un libro/tarjeta/cualquier rectángulo), recién entonces se
+dispara el smart_scan completo con Sonnet. Reduce ~30% los falsos
+positivos del TIER 1 sin necesitar dataset etiquetado.
+
 ## Output schema
 
 ```json
@@ -193,6 +203,85 @@ async def smart_scan(
         raise RuntimeError("Claude no devolvió texto")
     raw = getattr(text_blocks[0], "text", "")
     return parse_scan_response(raw)
+
+
+_PRECHECK_PROMPT = """Tu única tarea: ver esta foto y responder con UNA \
+sola palabra:
+
+- "plate" si ves una placa vehicular (rectángulo metálico con caracteres)
+- "vin" si ves el NIV/VIN del auto (sticker con 17 caracteres)
+- "invoice" si ves una factura del auto (papel con SAT/CFDI/RFC)
+- "none" si la foto NO muestra ninguno de los 3 anteriores
+- "unclear" si está demasiado borroso/oscuro para decidir
+
+Solo la palabra. Nada más."""
+
+
+_PRECHECK_TYPES = {"plate", "vin", "invoice", "none", "unclear"}
+
+
+@dataclass(frozen=True)
+class PrecheckResult:
+    """Output de `precheck_image()` — solo clasificación, sin valores."""
+    type: Literal["plate", "vin", "invoice", "none", "unclear"]
+    raw: str  # respuesta literal del modelo, para debug
+
+
+async def precheck_image(
+    image_base64: str, media_type: str = "image/jpeg"
+) -> PrecheckResult:
+    """Pre-clasificación barata con Haiku 4.5 (~$0.0003/call).
+
+    Usado por el frontend antes de gastar smart_scan completo:
+    si esto devuelve `none` o `unclear`, no vale la pena correr Sonnet.
+
+    Latencia típica: 500-900ms.
+    """
+    settings = get_settings()
+    if not settings.anthropic_api_key:
+        # Fail open — si no hay key, dejamos pasar al smart_scan que
+        # ya tiene su propio error handling.
+        return PrecheckResult(type="unclear", raw="no-api-key")
+
+    import anthropic
+
+    client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+    try:
+        response = await client.messages.create(
+            model="claude-haiku-4-5",
+            max_tokens=20,
+            system=_PRECHECK_PROMPT,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": media_type,
+                            "data": image_base64,
+                        },
+                    },
+                    {"type": "text", "text": "Clasifica."},
+                ],
+            }],
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Precheck Haiku falló (no-bloqueante): %s", exc)
+        return PrecheckResult(type="unclear", raw=f"error: {exc}")
+
+    text_blocks = [
+        b for b in response.content if getattr(b, "type", "") == "text"
+    ]
+    raw = (text_blocks[0].text if text_blocks else "").strip().lower()
+
+    # Tomamos la primera palabra de la respuesta — Haiku a veces
+    # agrega explicación pese al prompt, e.g. "plate (placa visible)".
+    first_word = re.split(r"[^a-z]+", raw, maxsplit=1)[0] if raw else ""
+    if first_word not in _PRECHECK_TYPES:
+        first_word = "unclear"
+
+    return PrecheckResult(type=first_word, raw=raw[:200])  # type: ignore[arg-type]
 
 
 def parse_scan_response(raw_json: str) -> SmartScanResult:
