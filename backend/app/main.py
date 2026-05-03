@@ -107,6 +107,17 @@ async def lifespan(_app: FastAPI):
             )
     except Exception:  # noqa: BLE001
         logger.exception("Startup orphan recovery falló (no-bloqueante)")
+
+    # Opción B: defensive Chromium bootstrap. Si el deploy se saltó
+    # `playwright install chromium`, el lifespan dispara la instalación
+    # en background. NO bloquea el yield — el server queda live mientras
+    # Chromium se descarga. REPUVE degrada gracefully hasta que termine.
+    try:
+        from app.services.playwright_bootstrap import ensure_chromium_installed
+        await ensure_chromium_installed()
+    except Exception:  # noqa: BLE001
+        logger.exception("Playwright bootstrap falló (no-bloqueante)")
+
     yield
 
 

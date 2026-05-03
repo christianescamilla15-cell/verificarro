@@ -18,24 +18,26 @@ databases:
 services:
   - type: web
     name: verificarro-api
-    runtime: python
+    # Migrado a Docker runtime (2026-05-02) — el python runtime nativo
+    # de Render se desincronizaba del buildCommand del dashboard, lo que
+    # causaba deploys sin Chromium. La imagen oficial Playwright trae
+    # Chromium + todas las deps linux pre-instaladas (no necesita sudo).
+    # Si querés volver a runtime: python, descomentá el bloque viejo
+    # abajo y borrá runtime/dockerfilePath.
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
     region: oregon
     plan: starter # $7/mo, 512MB RAM, 0.5 CPU
-    rootDir: backend
-    # Build: instala deps Python + Playwright (Chromium ~200MB) + corre migraciones.
-    # Si el build falla por OOM en Render Starter, considera diferir
-    # `playwright install` al primer request o subir a Standard ($25/mo).
-    # `playwright install-deps` requiere sudo (no disponible en Render);
-    # las deps Linux base ya están en el contenedor Render Python, así
-    # que solo descargamos Chromium con `playwright install chromium`.
-    buildCommand: |
-      pip install --upgrade pip
-      pip install -r requirements.txt
-      playwright install chromium
-      alembic upgrade head
-    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     autoDeploy: true # cada push a main dispara deploy
+    # Legacy python runtime (mantenido como referencia, NO activo):
+    #   runtime: python
+    #   rootDir: backend
+    #   buildCommand: |
+    #     pip install --upgrade pip && pip install -r requirements.txt
+    #     playwright install chromium && alembic upgrade head
+    #   startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     envVars:
       # --- Server ---
       - key: ENV
