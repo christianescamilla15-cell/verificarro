@@ -5,21 +5,39 @@ import {
 } from 'lucide-react'
 import { api } from '../lib/api.js'
 import { useModalA11y } from '../hooks/useModalA11y.js'
+import { analyzeFrame, extractLuma } from '../lib/frameAnalyzer.js'
 import Spinner from './Spinner.jsx'
 
 /**
  * Modal con tres modalidades para capturar la placa o VIN:
  *
- * 1. Cámara → snapshot → OCR con Claude visión
+ * 1. Cámara → auto-detect cuando frame está listo → OCR con Claude visión
  * 2. Subir foto desde galería → mismo OCR
  * 3. Tipear placa o VIN manualmente (fallback sin cámara)
  *
  * Tras éxito, llama `onResult({report_id, plate, score, risk_level, summary})`.
  * El padre redirige a `/preview/{report_id}`.
+ *
+ * ### Auto-capture inteligente (TIER 1 — heurísticas client-side)
+ *
+ * Reemplaza el viejo countdown ciego de 2s por un watcher que analiza
+ * frames del stream a 10fps con `frameAnalyzer.js` (sharpness +
+ * brightness + edge density + stability). Cuando el frame cumple las
+ * 4 heurísticas durante 3 frames consecutivos → captura automática.
+ *
+ * Si nunca se cumplen las heurísticas en `AUTO_CAPTURE_FALLBACK_MS`,
+ * dispara captura forzada igual (no quedamos esperando para siempre).
+ *
+ * El UX feedback (hint) se muestra en tiempo real para que el usuario
+ * sepa qué corregir ("Necesita más luz", "Mantén firme", etc.).
  */
-const AUTO_CAPTURE_INITIAL_DELAY_MS = 2000  // espera estabilización antes del 1er shot
-const AUTO_CAPTURE_RETRY_DELAY_MS = 2500    // entre reintentos
-const AUTO_CAPTURE_MAX_ATTEMPTS = 3         // ~3 × $0.006 = $0.018 USD máximo por sesión
+const AUTO_CAPTURE_RETRY_DELAY_MS = 2500    // entre reintentos a Claude
+const AUTO_CAPTURE_MAX_ATTEMPTS = 3         // ~3 × $0.006 = $0.018 USD máximo
+const AUTO_CAPTURE_FALLBACK_MS = 8000       // si heurísticas nunca pasan, capturar igual
+const AUTO_CAPTURE_READY_FRAMES = 3         // frames "ready" consecutivos antes de disparar
+const FRAME_POLL_INTERVAL_MS = 100          // 10fps de análisis
+const ANALYZE_W = 320                       // downscale para perf/batería
+const ANALYZE_H = 240
 
 export default function PlateScanner({ onResult, onClose }) {
   const videoRef = useRef(null)
@@ -28,6 +46,13 @@ export default function PlateScanner({ onResult, onClose }) {
   const streamRef = useRef(null)
   const autoCaptureCancelRef = useRef(false)
   const modalRef = useRef(null)
+  // Watcher state — analyze loop persistente
+  const watcherTimerRef = useRef(null)
+  const analyzeCanvasRef = useRef(null)
+  const prevLumaRef = useRef(null)
+  const readyStreakRef = useRef(0)
+  const watcherStartedAtRef = useRef(0)
+  const inFlightRef = useRef(false)
   // MOD-028: ESC + focus trap + restore focus.
   useModalA11y(modalRef, onClose)
   const [stage, setStage] = useState('mode')
@@ -37,8 +62,11 @@ export default function PlateScanner({ onResult, onClose }) {
   const [manualPlate, setManualPlate] = useState('')
   const [manualVin, setManualVin] = useState('')
   const [manualKind, setManualKind] = useState('plate')
-  const [captureCountdown, setCaptureCountdown] = useState(0)
   const [captureAttempt, setCaptureAttempt] = useState(0)
+  // Auto-capture inteligente — hint que se muestra al usuario sobre
+  // qué falta para que el frame esté listo (luz, foco, posición, etc.)
+  const [autoHint, setAutoHint] = useState('Posiciona el documento')
+  const [autoReady, setAutoReady] = useState(false)
   // Smart scanner: cuando detecta factura, almacenamos los datos
   // extraídos y mostramos un panel especial pidiendo placa/VIN.
   const [invoiceData, setInvoiceData] = useState(null)
@@ -48,6 +76,16 @@ export default function PlateScanner({ onResult, onClose }) {
       streamRef.current.getTracks().forEach((t) => t.stop())
       streamRef.current = null
     }
+    stopWatcher()
+  }
+
+  function stopWatcher() {
+    if (watcherTimerRef.current) {
+      clearInterval(watcherTimerRef.current)
+      watcherTimerRef.current = null
+    }
+    prevLumaRef.current = null
+    readyStreakRef.current = 0
   }
 
   useEffect(() => {
@@ -62,6 +100,8 @@ export default function PlateScanner({ onResult, onClose }) {
     setError(null)
     autoCaptureCancelRef.current = false
     setCaptureAttempt(0)
+    setAutoHint('Posiciona el documento')
+    setAutoReady(false)
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: { ideal: 'environment' }, width: 1280, height: 720 },
@@ -71,8 +111,8 @@ export default function PlateScanner({ onResult, onClose }) {
       if (videoRef.current) {
         videoRef.current.srcObject = stream
       }
-      // Arrancar el loop de auto-captura
-      runAutoCaptureLoop()
+      // Arrancar el watcher de heurísticas en lugar del countdown ciego
+      startAutoCaptureWatcher()
     } catch (err) {
       setCameraError(err.message || 'No pudimos acceder a la cámara')
       setStage('mode')
@@ -80,35 +120,101 @@ export default function PlateScanner({ onResult, onClose }) {
   }
 
   /**
-   * Loop de captura automática:
-   *   1. Espera estabilización (2s) — da tiempo al usuario a posicionar
-   *   2. Captura frame → envía a OCR
-   *   3. Si OK → onResult
-   *   4. Si falla → espera 2.5s, reintenta hasta MAX_ATTEMPTS
-   *   5. Tras MAX_ATTEMPTS sin éxito → muestra mensaje + opción manual
+   * Watcher de auto-captura inteligente (TIER 1).
+   *
+   * Cada FRAME_POLL_INTERVAL_MS:
+   *   1. Downscale del frame del video a ANALYZE_W × ANALYZE_H
+   *   2. Convierte a luma BT.601
+   *   3. analyzeFrame() devuelve {ready, hint}
+   *   4. Si ready 3 frames seguidos → trigger captura full-res a Claude
+   *
+   * Fallback: si en AUTO_CAPTURE_FALLBACK_MS las heurísticas nunca
+   * dispararon, capturamos igual (no nos quedamos esperando para siempre).
+   * Esto preserva el peor caso del flow viejo (~8s vs 2s del countdown).
    */
-  async function runAutoCaptureLoop() {
-    for (let attempt = 1; attempt <= AUTO_CAPTURE_MAX_ATTEMPTS; attempt++) {
-      if (autoCaptureCancelRef.current) return
-      const delay = attempt === 1 ? AUTO_CAPTURE_INITIAL_DELAY_MS : AUTO_CAPTURE_RETRY_DELAY_MS
+  function startAutoCaptureWatcher() {
+    stopWatcher()
+    watcherStartedAtRef.current = Date.now()
+    if (!analyzeCanvasRef.current) {
+      analyzeCanvasRef.current = document.createElement('canvas')
+      analyzeCanvasRef.current.width = ANALYZE_W
+      analyzeCanvasRef.current.height = ANALYZE_H
+    }
+    watcherTimerRef.current = setInterval(tickWatcher, FRAME_POLL_INTERVAL_MS)
+  }
 
-      // Countdown visual
-      const countdownStart = Math.ceil(delay / 1000)
-      for (let s = countdownStart; s > 0; s--) {
-        if (autoCaptureCancelRef.current) return
-        setCaptureCountdown(s)
-        await sleep(1000)
+  function tickWatcher() {
+    if (autoCaptureCancelRef.current || inFlightRef.current) return
+    const video = videoRef.current
+    const canvas = analyzeCanvasRef.current
+    if (!video || !canvas || video.readyState < 2) return
+
+    const ctx = canvas.getContext('2d', { willReadFrequently: true })
+    ctx.drawImage(video, 0, 0, ANALYZE_W, ANALYZE_H)
+    let imageData
+    try {
+      imageData = ctx.getImageData(0, 0, ANALYZE_W, ANALYZE_H)
+    } catch {
+      // Algunos browsers throw SecurityError si el video no es CORS-safe.
+      // En ese caso desactivamos el watcher y caemos al fallback inmediato.
+      stopWatcher()
+      triggerCapture()
+      return
+    }
+    const luma = extractLuma(imageData.data, ANALYZE_W, ANALYZE_H)
+    const result = analyzeFrame(prevLumaRef.current, luma, ANALYZE_W, ANALYZE_H)
+    prevLumaRef.current = luma
+
+    setAutoHint(result.hint)
+    setAutoReady(result.ready)
+
+    if (result.ready) {
+      readyStreakRef.current += 1
+      if (readyStreakRef.current >= AUTO_CAPTURE_READY_FRAMES) {
+        triggerCapture()
+        return
       }
-      setCaptureCountdown(0)
+    } else {
+      readyStreakRef.current = 0
+    }
 
+    // Fallback de seguridad — captura forzada si el watcher se atascó
+    const elapsed = Date.now() - watcherStartedAtRef.current
+    if (elapsed > AUTO_CAPTURE_FALLBACK_MS) {
+      setAutoHint('Capturando (sin verificación previa)')
+      triggerCapture()
+    }
+  }
+
+  async function triggerCapture() {
+    if (inFlightRef.current || autoCaptureCancelRef.current) return
+    inFlightRef.current = true
+    stopWatcher()
+    await runRetryLoop()
+    inFlightRef.current = false
+  }
+
+  /**
+   * Loop de reintentos a Claude. Si la captura falla (low confidence),
+   * espera AUTO_CAPTURE_RETRY_DELAY_MS y reinicia el watcher para la
+   * siguiente oportunidad. Máximo MAX_ATTEMPTS llamadas a la API.
+   */
+  async function runRetryLoop() {
+    for (let attempt = 1; attempt <= AUTO_CAPTURE_MAX_ATTEMPTS; attempt++) {
       if (autoCaptureCancelRef.current) return
       setCaptureAttempt(attempt)
 
       const success = await tryAutoCapture()
-      if (success) return  // onResult ya se invocó adentro
+      if (success) return
+
+      if (attempt < AUTO_CAPTURE_MAX_ATTEMPTS && !autoCaptureCancelRef.current) {
+        setAutoHint('Reintentando — reposiciona el documento')
+        await sleep(AUTO_CAPTURE_RETRY_DELAY_MS)
+        // Reanudar watcher para siguiente captura
+        if (!autoCaptureCancelRef.current) startAutoCaptureWatcher()
+      }
     }
 
-    // Tras 3 intentos fallidos
     if (!autoCaptureCancelRef.current) {
       setError(
         'No pudimos leer la placa con la cámara después de 3 intentos. ' +
@@ -287,24 +393,22 @@ export default function PlateScanner({ onResult, onClose }) {
         {stage === 'camera' && (
           <>
             <p className="muted">
-              Encuadra los caracteres de la placa dentro del marco.
-              Captura automática cuando esté lista.
+              Encuadra el documento dentro del marco — captura automática
+              cuando detectemos que está bien.
               {captureAttempt > 0 && ` · Intento ${captureAttempt}/${AUTO_CAPTURE_MAX_ATTEMPTS}`}
             </p>
             <div className="camera-preview">
               <video ref={videoRef} autoPlay playsInline muted className="camera-video" />
-              <div className="vin-guide" />
-              {captureCountdown > 0 && (
-                <div className="capture-countdown">
-                  <span className="countdown-num">{captureCountdown}</span>
-                  <span className="countdown-label">capturando…</span>
-                </div>
-              )}
-              {captureAttempt > 0 && captureCountdown === 0 && (
-                <div className="capture-countdown">
-                  <span className="countdown-label">leyendo…</span>
-                </div>
-              )}
+              <div className={`vin-guide ${autoReady ? 'vin-guide-ready' : ''}`} />
+              <div className={`auto-hint ${autoReady ? 'auto-hint-ready' : ''}`}>
+                {inFlightRef.current
+                  ? <span>Leyendo con IA…</span>
+                  : <>
+                      <span className="auto-hint-dot" aria-hidden="true" />
+                      <span>{autoHint}</span>
+                    </>
+                }
+              </div>
             </div>
             <p className="muted small" style={{ textAlign: 'center', marginTop: 8 }}>
               Click fuera de este recuadro para cerrar

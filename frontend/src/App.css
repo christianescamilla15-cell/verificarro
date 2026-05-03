@@ -898,6 +898,57 @@ code.invoice-field-value {
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
+
+/* Auto-capture inteligente (TIER 1) — overlay con hint dinámico
+   reemplaza el countdown ciego. Cambia de color cuando frame está listo. */
+.auto-hint {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  background: rgba(0, 0, 0, 0.72);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-full);
+  color: #ffffff;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  white-space: nowrap;
+  max-width: 92%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background 200ms ease, border-color 200ms ease;
+}
+.auto-hint-ready {
+  background: rgba(22, 163, 74, 0.88);
+  border-color: var(--success);
+}
+.auto-hint-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  background: var(--accent);
+  flex-shrink: 0;
+  animation: auto-hint-pulse 1.6s ease-in-out infinite;
+}
+.auto-hint-ready .auto-hint-dot {
+  background: #ffffff;
+  animation: none;
+}
+.vin-guide-ready {
+  border-color: var(--success);
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.45),
+              0 0 24px var(--success);
+  animation: none;
+}
+@keyframes auto-hint-pulse {
+  0%, 100% { opacity: 0.5; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1.1); }
+}
+
 @keyframes scan-pulse {
   0%, 100% { box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.45),
                           0 0 24px var(--accent); }
