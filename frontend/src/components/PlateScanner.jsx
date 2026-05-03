@@ -54,6 +54,9 @@ export default function PlateScanner({ onResult, onClose }) {
   const watcherStartedAtRef = useRef(0)
   const inFlightRef = useRef(false)
   const precheckInFlightRef = useRef(false)
+  // Recolecta el { status, message } de cada intento fallido para
+  // mostrarle al user el detail tecnico cuando se agotan los 3 intentos.
+  const attemptErrorsRef = useRef([])
   // MOD-028: ESC + focus trap + restore focus.
   useModalA11y(modalRef, onClose)
   const [stage, setStage] = useState('mode')
@@ -262,8 +265,14 @@ export default function PlateScanner({ onResult, onClose }) {
    * Loop de reintentos a Claude. Si la captura falla (low confidence),
    * espera AUTO_CAPTURE_RETRY_DELAY_MS y reinicia el watcher para la
    * siguiente oportunidad. Máximo MAX_ATTEMPTS llamadas a la API.
+   *
+   * Recolecta el error de cada intento en `attemptErrorsRef` para
+   * mostrarle al user qué falló específicamente cuando se agotan los
+   * 3 intentos. Sin esta visibilidad solo veía "no pudimos leer" sin
+   * pista de si era OCR, red, rate limit, o validación.
    */
   async function runRetryLoop() {
+    attemptErrorsRef.current = []
     for (let attempt = 1; attempt <= AUTO_CAPTURE_MAX_ATTEMPTS; attempt++) {
       if (autoCaptureCancelRef.current) return
       setCaptureAttempt(attempt)
@@ -280,12 +289,14 @@ export default function PlateScanner({ onResult, onClose }) {
     }
 
     if (!autoCaptureCancelRef.current) {
+      const errorsDetail = attemptErrorsRef.current
+        .map((e, i) => `Intento ${i + 1}: ${e.status || 'red'} — ${e.message}`)
+        .join(' | ')
       setError(
         'No pudimos leer la placa después de 3 intentos. ' +
-        'Tips: 1) Acerca la cámara hasta que la placa LLENE el cuadro, ' +
-        '2) Evita reflejos directos del sol o luces, ' +
-        '3) Mantén el celular paralelo a la placa (no de costado). ' +
-        'O ingresa la placa manualmente abajo.'
+        'Tips: acerca la cámara hasta que la placa llene el cuadro, ' +
+        'evita reflejos, mantén el celular paralelo a la placa.\n\n' +
+        `Detalle técnico: ${errorsDetail}`
       )
       setStage('error')
       stopStream()
@@ -295,7 +306,13 @@ export default function PlateScanner({ onResult, onClose }) {
   async function tryAutoCapture() {
     const video = videoRef.current
     const canvas = canvasRef.current
-    if (!video || !canvas) return false
+    if (!video || !canvas) {
+      attemptErrorsRef.current.push({
+        status: 'frontend',
+        message: 'video o canvas no disponible',
+      })
+      return false
+    }
 
     canvas.width = video.videoWidth || 1280
     canvas.height = video.videoHeight || 720
@@ -305,6 +322,7 @@ export default function PlateScanner({ onResult, onClose }) {
     // ~30% más bytes, ~40% mejor hit rate empíricamente.
     const dataUrl = canvas.toDataURL('image/jpeg', 0.92)
     const base64 = dataUrl.split(',')[1]
+    const sizeKb = Math.round(base64.length * 3 / 4 / 1024)
 
     const res = await api.post('/api/scan/plate', {
       image_base64: base64,
@@ -329,7 +347,11 @@ export default function PlateScanner({ onResult, onClose }) {
       onResult(res.data)
       return true
     }
-    // Falló — el loop reintentará si quedan attempts
+    // Falló — recolectar el detail real para reportar al user al final
+    attemptErrorsRef.current.push({
+      status: res.status || 0,
+      message: (res.error || 'sin detail').slice(0, 180) + ` (img ${sizeKb}KB)`,
+    })
     return false
   }
 
@@ -354,12 +376,16 @@ export default function PlateScanner({ onResult, onClose }) {
       const mediaType = file.type === 'image/png' ? 'image/png'
         : file.type === 'image/webp' ? 'image/webp' : 'image/jpeg'
       setStage('scanning')
+      const sizeKb = Math.round(base64.length * 3 / 4 / 1024)
       const res = await api.post('/api/scan/plate', {
         image_base64: base64,
         media_type: mediaType,
       })
       if (!res.ok) {
-        setError(res.error || 'No pudimos leer la placa')
+        // Mostrar detalle tecnico para diagnosticar OCR fallido
+        const detail = `[HTTP ${res.status || 'red'}] ${res.error || 'sin detail'} `
+          + `(img ${sizeKb}KB, ${mediaType})`
+        setError(detail)
         setStage('error')
         return
       }

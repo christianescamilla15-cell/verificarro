@@ -282,6 +282,11 @@ async def _resolve_plate_and_vin(
     - Si detecta `unknown` → 400 con notas
     """
     if body.image_base64:
+        img_size_kb = len(body.image_base64) * 3 // 4 // 1024
+        logger.info(
+            "scan/plate image received: size=%dKB media_type=%s",
+            img_size_kb, body.media_type,
+        )
         try:
             result = await smart_scan(body.image_base64, body.media_type)
         except RuntimeError as exc:
@@ -290,6 +295,17 @@ async def _resolve_plate_and_vin(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail=f"No pude procesar la imagen: {exc}",
             ) from exc
+
+        # Log estructurado para diagnosticar via Render API: que devolvio Claude
+        # exactamente. Crucial cuando el user reporta "no lee la placa" — sin
+        # esto solo veo el HTTP 400 final sin pista de la causa.
+        logger.info(
+            "smart_scan result: type=%s value=%r confidence=%s notes=%r",
+            result.type,
+            (result.value or "")[:30],
+            result.confidence,
+            (result.notes or "")[:200],
+        )
 
         # Tolerancia 4-8 chars (placas mexicanas viejas pueden ser 5-6,
         # nuevas son 7; tolerar 4 y 8 captura ediciones donde Sonnet leyó
@@ -336,6 +352,14 @@ async def _resolve_plate_and_vin(
         except RuntimeError as exc:
             logger.warning("plate_ocr fallback fallo: %s", exc)
             plate_result = None
+
+        if plate_result:
+            logger.info(
+                "plate_ocr fallback result: plate=%r confidence=%s notes=%r",
+                plate_result.plate,
+                plate_result.confidence,
+                (plate_result.notes or "")[:200],
+            )
 
         if (
             plate_result
