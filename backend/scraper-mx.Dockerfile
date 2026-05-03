@@ -69,6 +69,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Install Chromium binary (sin --with-deps porque ya instalamos las libs
 # arriba con nombres Debian correctos). PLAYWRIGHT_BROWSERS_PATH arriba
 # hace que vaya a /ms-playwright en lugar de /root/.cache.
+# rebrowser_playwright comparte el mismo browser binary path que
+# playwright stock (mismo PLAYWRIGHT_BROWSERS_PATH) — un solo install
+# sirve para ambos. Si el sidecar usa USE_REBROWSER_PLAYWRIGHT=true
+# rebrowser_playwright detecta el chromium ya instalado.
 RUN playwright install chromium && \
     chown -R pwuser:pwuser /ms-playwright
 
