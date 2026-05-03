@@ -67,10 +67,20 @@ def compute_phash(image_bytes: bytes) -> int | None:
     """
     if not image_bytes:
         return None
+
+    # Imports en bloque separado: si PIL/imagehash no están instalados
+    # (entorno mínimo de tests, deps opcionales) NO podemos atrapar
+    # UnidentifiedImageError en el except de abajo porque su nombre
+    # nunca se bindeó — daría UnboundLocalError. Atrapamos ImportError
+    # primero y degradamos a None silencioso.
     try:
         import imagehash
         from PIL import Image, UnidentifiedImageError
+    except ImportError as exc:
+        logger.debug("pHash deshabilitado (PIL/imagehash no instalado): %s", exc)
+        return None
 
+    try:
         img = Image.open(io.BytesIO(image_bytes))
         hash_obj = imagehash.phash(img, hash_size=8)  # 8x8 = 64 bits
     except (UnidentifiedImageError, OSError, ValueError) as exc:
