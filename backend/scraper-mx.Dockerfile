@@ -1,14 +1,13 @@
 # Verificarro scraper-mx sidecar Dockerfile
 #
-# Microservice independiente del backend principal. Misma imagen base
-# (Playwright con Chromium pre-baked), mismo código (reusa
-# app/scrapers/repuve.py y app/services/captcha_solver.py), pero
-# entrypoint diferente (app/scraper_main.py).
+# Microservice independiente del backend principal. Reusa código del
+# backend (app/scrapers/repuve.py + captcha_solver) con entrypoint
+# diferente (app/scraper_main.py).
 #
-# El propósito: deployar este contenedor en un host con IP mexicana
-# (Vultr CDMX, Hostinger MX, etc.) para evitar el WAF de gob.mx que
-# bloquea IPs no-mexicanas. El backend principal (Render Oregon) le
-# llama via HTTP cuando REPUVE_SCRAPER_URL está set.
+# Base: python:3.12-slim porque el backend usa `datetime.UTC` (3.11+).
+# Microsoft Playwright image v1.48 viene con Python 3.10 → ImportError.
+# En Vultr/Hostinger corremos como root → `playwright install-deps`
+# funciona sin sudo (a diferencia de Render Starter).
 #
 # Build:
 #   docker build -f scraper-mx.Dockerfile -t verificarro-scraper-mx .
@@ -32,25 +31,34 @@
 #     -H "Content-Type: application/json" \
 #     -d '{"plate":"PHC9604"}'
 
-FROM mcr.microsoft.com/playwright/python:v1.48.0-jammy AS runtime
+FROM python:3.12-slim AS runtime
+
+# Path system-wide para que Chromium quede accesible para todos los
+# users (playwright_bootstrap también lo busca aquí en su lista de
+# candidatos).
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 WORKDIR /app
 
-# System deps: solo curl para healthcheck (Postgres NO necesario, este
-# sidecar es stateless — no toca DB).
+# System deps base: curl para healthcheck + las libs Linux para
+# Chromium. `playwright install-deps` necesita corredor con permisos
+# apt — corremos como root aquí (build time).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Solo las deps de Python que necesita el scraper. Subset del
-# requirements.txt principal para imagen más liviana.
-# httpx + playwright + cryptography vienen de aquí; agregar solo lo
-# que el código del scraper realmente importa.
+# Crear non-root user temprano para chown selectivo después.
+RUN useradd -m -u 1001 pwuser
+
+# Subset de requirements del backend.
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Re-confirmar Chromium (no-op si la imagen base ya lo tiene).
-RUN playwright install chromium
+# Install Chromium + libs Linux (~30 paquetes apt). PLAYWRIGHT_BROWSERS_PATH
+# arriba hace que vaya a /ms-playwright en lugar de /root/.cache. Después
+# chown para que pwuser tenga acceso.
+RUN playwright install --with-deps chromium && \
+    chown -R pwuser:pwuser /ms-playwright
 
 # Copiar SOLO los módulos que el sidecar necesita. NO copiamos
 # el resto del backend (api/, db/, services/ excepto los necesarios)
@@ -65,7 +73,6 @@ COPY app/services/__init__.py ./app/services/__init__.py
 COPY app/services/captcha_solver.py ./app/services/captcha_solver.py
 COPY app/services/playwright_bootstrap.py ./app/services/playwright_bootstrap.py
 
-# El user pwuser ya viene en la imagen base de Playwright.
 RUN chown -R pwuser:pwuser /app
 USER pwuser
 
