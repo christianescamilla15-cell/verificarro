@@ -473,8 +473,12 @@ async def _run_query(plate: str | None, vin: str | None) -> RepuveResult:
             # (donde viven sus cookies/login Google reales). NO cerramos
             # el browser ni el context al terminar — es el Chrome del
             # usuario, sería destructivo.
+            # 127.0.0.1 explícito en vez de "localhost" porque Windows
+            # resuelve "localhost" a ::1 (IPv6 loopback) primero, y
+            # Chrome con --remote-debugging-port bindea solo a IPv4.
+            # Resultado: ECONNREFUSED ::1:9222. 127.0.0.1 evita ese gotcha.
             cdp_url = os.environ.get(
-                "REAL_CHROME_CDP_URL", "http://localhost:9222"
+                "REAL_CHROME_CDP_URL", "http://127.0.0.1:9222"
             )
             logger.warning(
                 "[engine] connecting to real Chrome via CDP at %s", cdp_url,
