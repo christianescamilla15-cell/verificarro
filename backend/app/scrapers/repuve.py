@@ -869,6 +869,17 @@ async def _maybe_solve_recaptcha(page: "Page") -> bool:
     import logging
     log = logging.getLogger(__name__)
 
+    # Kill-switch: SKIP_2CAPTCHA=true bypassa todo el flow de 2Captcha
+    # (útil con USE_REAL_CHROME donde reCAPTCHA invisible v2 auto-pasa
+    # en la sesión real del usuario sin necesitar tokens externos).
+    # Validado empíricamente 2026-05-10: 10 smokes con 2Captcha SIEMPRE
+    # rechazaron porque sus tokens vienen de otra sesión/IP y Google
+    # `siteverify` correlaciona origin. Skip 2Captcha completo cuando
+    # usemos real Chrome para que reCAPTCHA genere su propio token nativo.
+    if os.environ.get("SKIP_2CAPTCHA", "").lower() == "true":
+        log.warning("[2captcha] SKIP_2CAPTCHA=true — saltando flow 2Captcha")
+        return False
+
     detection = await _extract_recaptcha_sitekey(page)
     if not detection:
         log.debug("No reCaptcha widget detectado en la página")
