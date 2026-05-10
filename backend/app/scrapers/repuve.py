@@ -628,6 +628,32 @@ async def _run_query(plate: str | None, vin: str | None) -> RepuveResult:
                 )
 
             modal_html = await _read_response_modal(page)
+
+            # Diagnostic: si activado SCRAPE_DUMP_ON_EMPTY=true Y el
+            # modal vino vacío, dumpea screenshot + HTML para inspeccionar
+            # qué REPUVE realmente sirvió. Útil cuando captcha aparenta
+            # pasar (no captcha_required) pero modal no se materializa —
+            # nos permite ver si REPUVE rendererizó un error distinto,
+            # un modal con selector distinto, o nada.
+            if (
+                os.environ.get("SCRAPE_DUMP_ON_EMPTY", "").lower() == "true"
+                and not modal_html.strip()
+            ):
+                try:
+                    import time as _time
+                    ts = int(_time.time())
+                    png_path = Path(profile_dir).parent / f"repuve_dump_{ts}.png"
+                    html_path = Path(profile_dir).parent / f"repuve_dump_{ts}.html"
+                    await page.screenshot(path=str(png_path), full_page=True)
+                    full_html = await page.content()
+                    html_path.write_text(full_html, encoding="utf-8")
+                    logger.warning(
+                        "[diag] modal vacío — screenshot=%s html=%s",
+                        png_path, html_path,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("[diag] dump fallido: %s", exc)
+
             return parse_response(
                 modal_html,
                 plate=plate,
