@@ -44,6 +44,25 @@ class Settings(BaseSettings):
         default="", alias="CAPTCHA_SOLVER_API_KEY"
     )
 
+    # --- Audio captcha solver (Whisper local, sin APIs externas) ---
+    # Drive del audio challenge oficial de reCAPTCHA v2 (botón
+    # accesibilidad). Whisper transcribe el .mp3 local → respondemos.
+    # $0/solve, 3-7s. Ver app/services/audio_captcha_solver.py.
+    #
+    # Activar: CAPTCHA_AUDIO_ENABLED=true. Requiere `faster-whisper` en
+    # requirements.txt y modelo cacheado en disco (~75 MB para `tiny`).
+    # Importante: ~150 MB RAM en runtime — Render Starter (512 MB) está
+    # justo, considerar Standard si hace falta producción.
+    captcha_audio_enabled: bool = Field(
+        default=False, alias="CAPTCHA_AUDIO_ENABLED",
+    )
+    # Modelo Whisper a cargar. `tiny` = 75 MB, ~1-2s CPU, suficiente para
+    # 4 dígitos del audio reCAPTCHA. `base` = 142 MB, mejor accuracy.
+    # `small` y arriba = overkill para este caso.
+    whisper_model_size: str = Field(
+        default="tiny", alias="WHISPER_MODEL_SIZE",
+    )
+
     # Cantidad máxima de intentos por consulta REPUVE cuando el captcha
     # bypass es rechazado. 1 = single-shot, 2 = un retry. Más allá de 2
     # los retornos diminish y la UX sufre.

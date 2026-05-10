@@ -45,6 +45,9 @@ from typing import TYPE_CHECKING
 from app.config import get_settings
 from app.models.report import RepuveResult
 from app.scrapers.stealth import apply_stealth
+from app.services.audio_captcha_solver import (
+    solve_invisible_recaptcha_audio,
+)
 from app.services.captcha_solver import solve_recaptcha_v2
 
 if TYPE_CHECKING:
@@ -453,8 +456,36 @@ async def _run_query(plate: str | None, vin: str | None) -> RepuveResult:
             # Captchas de imagen tradicionales (raros): Claude visión.
             captcha_solved = await _maybe_solve_captcha(page)
             # reCaptcha v2 de Google (común en REPUVE): 2Captcha API.
+            # Pre-submit: inyecta token + monkey-patch grecaptcha.execute.
             recaptcha_solved = await _maybe_solve_recaptcha(page)
             await _click_submit(page, input_selector)
+
+            # Post-submit audio fallback: si invisible reCAPTCHA dispara
+            # un challenge (token de 2Captcha rechazado, o no había token),
+            # drive el audio challenge con Whisper local. Cero costo,
+            # 3-7s típico. No-op si no hay challenge frame ni audio
+            # enabled. Detalle en services/audio_captcha_solver.py.
+            audio_solved = False
+            if settings.captcha_audio_enabled:
+                # Skip audio si el modal de resultado ya apareció
+                # (form se mandó directo sin challenge).
+                modal_already = False
+                try:
+                    await page.wait_for_selector(
+                        _SELECTORS["result_modal"], timeout=2_000,
+                    )
+                    modal_already = True
+                except Exception:  # noqa: BLE001
+                    pass
+
+                if not modal_already:
+                    try:
+                        audio_solved = await solve_invisible_recaptcha_audio(
+                            page, timeout_sec=30.0,
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        logger.warning("Audio solver excepción: %s", exc)
+
             await page.wait_for_timeout(3_000)
 
             if await _has_recaptcha_error(page):
@@ -462,7 +493,7 @@ async def _run_query(plate: str | None, vin: str | None) -> RepuveResult:
                     "REPUVE pidió reCaptcha. Consulta manualmente en "
                     "repuve.gob.mx y pega el resultado en la app."
                 )
-                if recaptcha_solved:
+                if recaptcha_solved or audio_solved:
                     error_msg = (
                         "REPUVE rechazó el token de reCaptcha. Reintenta "
                         "o consulta manualmente en repuve.gob.mx."

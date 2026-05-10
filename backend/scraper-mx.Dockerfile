@@ -87,6 +87,7 @@ COPY app/models/report.py ./app/models/report.py
 COPY app/scrapers/ ./app/scrapers/
 COPY app/services/__init__.py ./app/services/__init__.py
 COPY app/services/captcha_solver.py ./app/services/captcha_solver.py
+COPY app/services/audio_captcha_solver.py ./app/services/audio_captcha_solver.py
 COPY app/services/playwright_bootstrap.py ./app/services/playwright_bootstrap.py
 COPY app/services/scrape_telemetry.py ./app/services/scrape_telemetry.py
 
