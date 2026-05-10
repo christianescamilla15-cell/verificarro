@@ -449,13 +449,21 @@ async def _run_query(plate: str | None, vin: str | None) -> RepuveResult:
         if use_camoufox:
             from camoufox.async_api import AsyncCamoufox
 
-            # Camoufox-specific kwargs. La mayoría coinciden con Playwright
-            # Firefox launch options + adicionales propios:
-            #   geoip=True       → ajusta timezone/locale/proxy según IP
-            #   humanize=True    → smooth cursor trajectories (innecesario
-            #                       que hagamos _humanize_mouse pero no daña)
-            #   os=["windows"]   → forzar fingerprint Windows (matcha tu
-            #                       dev box, evita inconsistencias OS-level)
+            # Camoufox-specific kwargs:
+            #   geoip=True          → ajusta timezone/locale/proxy según IP
+            #   humanize=True       → smooth cursor trajectories C++ nativo
+            #                          (saltar nuestro _humanize_mouse para
+            #                          evitar double-humanization)
+            #   os=["windows"]      → forzar fingerprint Windows
+            #   main_world_eval=True → CRÍTICO. Por default Camoufox aísla
+            #                          page.evaluate() en un mundo JS
+            #                          separado del main world donde
+            #                          reCAPTCHA carga `window.grecaptcha`.
+            #                          Sin este flag nuestra inyección
+            #                          2Captcha falla con `no_grecaptcha_api`
+            #                          (mismo bug que vimos con patchright
+            #                          en smoke 2026-05-10). Insight de
+            #                          techinz/playwright-captcha README.
             cf_kwargs = {
                 "persistent_context": True,
                 "user_data_dir": profile_dir,
@@ -464,6 +472,7 @@ async def _run_query(plate: str | None, vin: str | None) -> RepuveResult:
                 "geoip": True,
                 "humanize": True,
                 "os": ["windows"],
+                "main_world_eval": True,
             }
             if proxy_config:
                 cf_kwargs["proxy"] = proxy_config
@@ -526,7 +535,15 @@ async def _run_query(plate: str | None, vin: str | None) -> RepuveResult:
 
             # Mouse moves humanizados antes de interactuar — Google
             # considera "no mouse activity en la sesión" como señal bot.
-            await _humanize_mouse(page)
+            #
+            # Skip cuando Camoufox está activo: ya tiene `humanize=True`
+            # que hace smooth cursor trajectories a nivel C++ nativo.
+            # Aplicar nuestro JS-level _humanize_mouse encima causa
+            # double-humanization → cursor brincando errático por toda
+            # la pantalla (observado en smoke 2026-05-10). Camoufox
+            # alone es más natural y suficiente.
+            if not use_camoufox:
+                await _humanize_mouse(page)
 
             # Cambio 2026-05-10: page.fill() bypassa el dispatcher
             # de eventos KeyboardEvent — flag obvio para reCaptcha v3.
