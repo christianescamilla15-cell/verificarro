@@ -335,27 +335,40 @@ async def _query_remote(
 
 async def _run_query(plate: str | None, vin: str | None) -> RepuveResult:
     settings = get_settings()
+    use_camoufox = os.environ.get("USE_CAMOUFOX", "").lower() == "true"
 
-    # Anti-detect Playwright drop-in. Tres opciones por orden de
+    # Anti-detect engine selection. Cuatro opciones por orden de
     # agresividad (más reciente arriba):
     #
-    #   USE_PATCHRIGHT=true        (recomendado 2026-05-10)
-    #     CDP isolation patches a nivel JavaScript-isolation. Cierra los
-    #     leaks de rebrowser y agrega más. Benchmarks 2026 reportan
-    #     ~67% headless detection reduction vs stock Playwright.
+    #   USE_CAMOUFOX=true          (recomendado 2026-05-10 si patchright
+    #                              tampoco pasa REPUVE)
+    #     Firefox custom-compiled. Fingerprint patches a nivel C++ —
+    #     antes de que JS pueda inspeccionar. Benchmarks 2026 reportan
+    #     0% headless detection. Diferente engine que Playwright stock
+    #     (necesita su propio binary, ~530 MB Firefox 135 custom).
+    #     API: AsyncCamoufox() context manager → Browser directly.
+    #
+    #   USE_PATCHRIGHT=true        (intermedio)
+    #     CDP isolation patches a nivel JavaScript-isolation. ~67%
+    #     headless detection reduction. Drop-in Playwright Chromium.
+    #     ⚠ Smoke 2026-05-10 mostró que rompe la inyección 2Captcha
+    #     (window.grecaptcha no visible desde page.evaluate isolated
+    #     world). Si usas patchright + 2Captcha, la inyección sale
+    #     "no_grecaptcha_api" y el form se manda incompleto.
     #
     #   USE_REBROWSER_PLAYWRIGHT=true  (legacy)
-    #     Corrige runtimeEnableLeak + pwInitScripts. Era el más agresivo
-    #     hasta que apareció patchright. Lo dejo como fallback.
+    #     Corrige runtimeEnableLeak + pwInitScripts. Drop-in Chromium.
     #
     #   (nada set)
-    #     Stock Playwright. Para tests + casos donde anti-detect no aplica.
-    if os.environ.get("USE_PATCHRIGHT", "").lower() == "true":
-        from patchright.async_api import async_playwright
-    elif os.environ.get("USE_REBROWSER_PLAYWRIGHT", "").lower() == "true":
-        from rebrowser_playwright.async_api import async_playwright
-    else:
-        from playwright.async_api import async_playwright
+    #     Stock Playwright Chromium. Para tests + casos donde anti-detect
+    #     no aplica.
+    if not use_camoufox:
+        if os.environ.get("USE_PATCHRIGHT", "").lower() == "true":
+            from patchright.async_api import async_playwright
+        elif os.environ.get("USE_REBROWSER_PLAYWRIGHT", "").lower() == "true":
+            from rebrowser_playwright.async_api import async_playwright
+        else:
+            from playwright.async_api import async_playwright
 
     # Args de stealth: --disable-blink-features=AutomationControlled
     # esconde el flag más obvio que Google detecta.
@@ -425,14 +438,60 @@ async def _run_query(plate: str | None, vin: str | None) -> RepuveResult:
     if proxy_config:
         context_kwargs["proxy"] = proxy_config
 
-    async with async_playwright() as p:
-        # launch_persistent_context devuelve directamente un context
-        # (no hay browser separado en este modo).
-        context = await p.chromium.launch_persistent_context(**context_kwargs)
+    # Bifurcación de engine — Camoufox usa una API completamente
+    # distinta (AsyncCamoufox context manager → Browser/Context). Lo
+    # encapsulamos en un contextlib helper para que el resto del flow
+    # quede uniforme.
+    import contextlib
+
+    @contextlib.asynccontextmanager
+    async def _open_context():
+        if use_camoufox:
+            from camoufox.async_api import AsyncCamoufox
+
+            # Camoufox-specific kwargs. La mayoría coinciden con Playwright
+            # Firefox launch options + adicionales propios:
+            #   geoip=True       → ajusta timezone/locale/proxy según IP
+            #   humanize=True    → smooth cursor trajectories (innecesario
+            #                       que hagamos _humanize_mouse pero no daña)
+            #   os=["windows"]   → forzar fingerprint Windows (matcha tu
+            #                       dev box, evita inconsistencias OS-level)
+            cf_kwargs = {
+                "persistent_context": True,
+                "user_data_dir": profile_dir,
+                "headless": settings.playwright_headless,
+                "locale": "es-MX",
+                "geoip": True,
+                "humanize": True,
+                "os": ["windows"],
+            }
+            if proxy_config:
+                cf_kwargs["proxy"] = proxy_config
+            logger.warning("[engine] launching Camoufox (Firefox custom)")
+            async with AsyncCamoufox(**cf_kwargs) as context:
+                yield context
+        else:
+            engine_label = (
+                "patchright" if os.environ.get("USE_PATCHRIGHT", "").lower() == "true"
+                else "rebrowser" if os.environ.get("USE_REBROWSER_PLAYWRIGHT", "").lower() == "true"
+                else "stock-playwright"
+            )
+            logger.warning("[engine] launching %s Chromium", engine_label)
+            async with async_playwright() as p:
+                context = await p.chromium.launch_persistent_context(**context_kwargs)
+                try:
+                    yield context
+                finally:
+                    await context.close()
+
+    async with _open_context() as context:
         try:
             page = await context.new_page()
-            # Aplicar stealth ANTES de navegar a cualquier URL
-            await apply_stealth(page)
+            # apply_stealth() es Chromium-specific (window.chrome,
+            # WebGL params, etc.). Camoufox ya hace fingerprint patches
+            # a nivel C++ — saltar para evitar over-spoofing.
+            if not use_camoufox:
+                await apply_stealth(page)
 
             # Fase 2 cookie_warmup_v1 — visita Google + YouTube ANTES de
             # REPUVE para acumular cookies _ga, NID, etc. Reduce el score
@@ -559,9 +618,11 @@ async def _run_query(plate: str | None, vin: str | None) -> RepuveResult:
                 captcha_used=captcha_solved,
             )
         finally:
-            # En launch_persistent_context cerramos el context (no hay
-            # browser separado). El profile dir persiste para el próximo run.
-            await context.close()
+            # _open_context() async context manager hace su propio close
+            # en su finally — el bloque aquí es no-op intencional para
+            # mantener el shape del try/finally preexistente sin
+            # duplicar el cleanup.
+            pass
 
 
 async def _humanize_mouse(page: "Page") -> None:

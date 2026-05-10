@@ -21,6 +21,13 @@ rebrowser-playwright==1.52.0
 # Activar via USE_PATCHRIGHT=true env var. Mismo browser binary que
 # Playwright stock (PLAYWRIGHT_BROWSERS_PATH se reusa).
 patchright==1.52.5
+# camoufox: Firefox custom-compiled con fingerprint patches a nivel
+# C++ (antes de que JS pueda inspeccionar). Benchmarks 2026 (evomi,
+# techinz) reportan 0% headless detection. API DIFERENTE de Playwright
+# stock (AsyncCamoufox context manager). Activar via USE_CAMOUFOX=true.
+# Browser binary se baja con `python -m camoufox fetch` (~530 MB Firefox
+# 135 custom). [geoip] extra agrega base GeoIP para auto-fingerprint.
+camoufox[geoip]==0.4.11
 beautifulsoup4==4.12.3
 lxml==5.3.0
 reportlab==4.2.5
