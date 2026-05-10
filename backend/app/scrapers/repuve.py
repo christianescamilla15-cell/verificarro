@@ -814,9 +814,18 @@ async def _maybe_solve_recaptcha(page: "Page") -> bool:
     # Solución: además de inyectar, MONKEY-PATCH `grecaptcha.getResponse` y
     # `grecaptcha.execute` para que devuelvan nuestro token ya resuelto y
     # eviten el re-trigger.
+    #
+    # Camoufox-specific: cuando USE_CAMOUFOX=true, prepend "mw:" prefix
+    # al script para que evaluate corra en el main world (donde
+    # window.grecaptcha vive). Sin esto, evaluate corre aislado y la
+    # inyección falla con `no_grecaptcha_api`. Documentado en
+    # camoufox.com/python/usage main_world_eval section. El prefix
+    # "mw:" rompería en Playwright stock (sería JS inválido), por eso
+    # condicional en runtime.
+    _mw_prefix = "mw:" if os.environ.get("USE_CAMOUFOX", "").lower() == "true" else ""
     try:
         injection_log = await page.evaluate(
-            """(token) => {
+            _mw_prefix + """(token) => {
                 const log = [];
 
                 // (1) Textarea g-recaptcha-response (lectura clásica)
