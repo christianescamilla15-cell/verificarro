@@ -336,11 +336,23 @@ async def _query_remote(
 async def _run_query(plate: str | None, vin: str | None) -> RepuveResult:
     settings = get_settings()
 
-    # rebrowser-playwright drop-in (Step 2 del fix plan tras diagnóstico).
-    # Corrige los leaks runtimeEnableLeak + pwInitScripts que son los
-    # que Cloudflare/DataDome/Google reCaptcha v3 usan principalmente.
-    # Activar via USE_REBROWSER_PLAYWRIGHT=true (solo en sidecar Vultr).
-    if os.environ.get("USE_REBROWSER_PLAYWRIGHT", "").lower() == "true":
+    # Anti-detect Playwright drop-in. Tres opciones por orden de
+    # agresividad (más reciente arriba):
+    #
+    #   USE_PATCHRIGHT=true        (recomendado 2026-05-10)
+    #     CDP isolation patches a nivel JavaScript-isolation. Cierra los
+    #     leaks de rebrowser y agrega más. Benchmarks 2026 reportan
+    #     ~67% headless detection reduction vs stock Playwright.
+    #
+    #   USE_REBROWSER_PLAYWRIGHT=true  (legacy)
+    #     Corrige runtimeEnableLeak + pwInitScripts. Era el más agresivo
+    #     hasta que apareció patchright. Lo dejo como fallback.
+    #
+    #   (nada set)
+    #     Stock Playwright. Para tests + casos donde anti-detect no aplica.
+    if os.environ.get("USE_PATCHRIGHT", "").lower() == "true":
+        from patchright.async_api import async_playwright
+    elif os.environ.get("USE_REBROWSER_PLAYWRIGHT", "").lower() == "true":
         from rebrowser_playwright.async_api import async_playwright
     else:
         from playwright.async_api import async_playwright
@@ -372,9 +384,20 @@ async def _run_query(plate: str | None, vin: str | None) -> RepuveResult:
     profile_dir = settings.playwright_profile_dir
     Path(profile_dir).mkdir(parents=True, exist_ok=True)
 
-    # Step 3 fix: viewport randomization. El bot detector flagga el
-    # viewport hardcoded 1280x720 como "default Playwright values".
-    # Random entre tamaños comunes de laptop/desktop reales.
+    # Viewport DETERMINÍSTICO basado en hash(profile_dir + UA).
+    #
+    # Cambio 2026-05-10: antes random.choice() cada run → reCaptcha v3
+    # Enterprise lo flagga como "throwaway session". El paper de Google
+    # reCaptcha v3 hace heavy weighting de "returning visitor" — misma
+    # huella consistente entre sesiones sube el score.
+    #
+    # Hash desde (profile_dir + UA) significa:
+    #   - Mismo profile_dir → siempre mismo viewport (consistencia
+    #     intra-tenant que Google premia).
+    #   - Profiles distintos → posiblemente viewports distintos
+    #     (no hard-coded a 1366x768).
+    #   - Cambiar UA o crear profile fresh resetea el viewport (cuando
+    #     queremos "nueva identidad" deliberadamente).
     common_viewports = [
         {"width": 1366, "height": 768},   # más común laptop
         {"width": 1440, "height": 900},   # MacBook
@@ -382,7 +405,10 @@ async def _run_query(plate: str | None, vin: str | None) -> RepuveResult:
         {"width": 1600, "height": 900},   # común Win
         {"width": 1920, "height": 1080},  # Full HD
     ]
-    viewport = random.choice(common_viewports)
+    import hashlib
+    seed_input = f"{profile_dir}|{_USER_AGENT}".encode("utf-8")
+    seed_idx = int(hashlib.sha256(seed_input).hexdigest(), 16) % len(common_viewports)
+    viewport = common_viewports[seed_idx]
 
     context_kwargs = {
         "user_data_dir": profile_dir,
@@ -443,12 +469,31 @@ async def _run_query(plate: str | None, vin: str | None) -> RepuveResult:
             # considera "no mouse activity en la sesión" como señal bot.
             await _humanize_mouse(page)
 
+            # Cambio 2026-05-10: page.fill() bypassa el dispatcher
+            # de eventos KeyboardEvent — flag obvio para reCaptcha v3.
+            # Cambio a press_sequentially() con delay random 60-130ms
+            # entre tecla — patrón de typing humano real.
             if plate:
                 input_selector = _SELECTORS["plate_input"]
-                await page.fill(input_selector, plate)
+                await page.locator(input_selector).click()  # focus
+                await page.wait_for_timeout(random.randint(150, 350))
+                try:
+                    await page.locator(input_selector).press_sequentially(
+                        plate, delay=random.randint(60, 130),
+                    )
+                except AttributeError:
+                    # Playwright < 1.40 no tiene press_sequentially
+                    await page.type(input_selector, plate, delay=random.randint(60, 130))
             else:
                 input_selector = _SELECTORS["vin_input"]
-                await page.fill(input_selector, vin or "")
+                await page.locator(input_selector).click()
+                await page.wait_for_timeout(random.randint(150, 350))
+                try:
+                    await page.locator(input_selector).press_sequentially(
+                        vin or "", delay=random.randint(60, 130),
+                    )
+                except AttributeError:
+                    await page.type(input_selector, vin or "", delay=random.randint(60, 130))
 
             # Pausa humana entre fill y submit (real users no son instantáneos)
             await page.wait_for_timeout(random.randint(400, 900))

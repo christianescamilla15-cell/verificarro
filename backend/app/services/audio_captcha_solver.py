@@ -287,6 +287,9 @@ async def solve_invisible_recaptcha_audio(
 
     `timeout_sec` es presupuesto END-TO-END del solve completo.
     """
+    # WARNING level para diagnóstico — siempre visible aunque basicConfig
+    # no esté en INFO. Quitar/bajar a INFO una vez validado en prod.
+    logger.warning("[audio] solver invocado, timeout_sec=%.1f", timeout_sec)
     deadline = asyncio.get_running_loop().time() + timeout_sec
 
     # 1. Localizar iframe del challenge
@@ -294,8 +297,9 @@ async def solve_invisible_recaptcha_audio(
     if not frame:
         # Sin challenge → invisible reCAPTCHA dejó pasar (score OK).
         # NO es un error: el form ya se mandó.
-        logger.info("Sin challenge frame — score reCAPTCHA OK, form ya enviado")
+        logger.warning("[audio] Sin challenge frame tras 10s — Google fue directo a error o form pasó")
         return True
+    logger.warning("[audio] Challenge frame detectado, drive del audio challenge")
 
     # 2. Click audio button (humanizado)
     try:

@@ -15,6 +15,12 @@ playwright==1.52.0
 # 1.52.0 que matchea playwright stock. Las versiones major.minor
 # de rebrowser-playwright deben matchear playwright vanilla.
 rebrowser-playwright==1.52.0
+# patchright: drop-in más agresivo que rebrowser. Cierra leaks CDP a
+# nivel JavaScript-isolation. Benchmarks 2026 reportan ~67% headless
+# detection reduction vs stock Playwright (vs ~30% de rebrowser).
+# Activar via USE_PATCHRIGHT=true env var. Mismo browser binary que
+# Playwright stock (PLAYWRIGHT_BROWSERS_PATH se reusa).
+patchright==1.52.5
 beautifulsoup4==4.12.3
 lxml==5.3.0
 reportlab==4.2.5
