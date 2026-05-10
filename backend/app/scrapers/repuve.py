@@ -335,10 +335,26 @@ async def _query_remote(
 
 async def _run_query(plate: str | None, vin: str | None) -> RepuveResult:
     settings = get_settings()
+    use_real_chrome = os.environ.get("USE_REAL_CHROME", "").lower() == "true"
     use_camoufox = os.environ.get("USE_CAMOUFOX", "").lower() == "true"
 
-    # Anti-detect engine selection. Cuatro opciones por orden de
-    # agresividad (más reciente arriba):
+    # Anti-detect engine selection. CINCO opciones por orden de
+    # autenticidad (más cerca de "humano real" arriba):
+    #
+    #   USE_REAL_CHROME=true       (recomendado 2026-05-10 después
+    #                              de 8 smokes fallidos con todos los
+    #                              demás engines)
+    #     Conecta vía CDP al Chrome que el usuario YA TIENE corriendo
+    #     con sus años de cookies, login Google, historia real, GPU
+    #     real, plugins reales, fonts reales. Score reCAPTCHA debería
+    #     ser MUY alto porque es literalmente un humano-trusted browser.
+    #     Requiere: Chrome lanzado con `--remote-debugging-port=9222`.
+    #     Lee REAL_CHROME_CDP_URL env (default http://localhost:9222).
+    #     ⚠ NO cierra el browser al terminar (es Chrome del usuario).
+    #
+    # Las otras opciones (Camoufox, patchright, rebrowser, stock) lanzan
+    # su propio browser y son útiles cuando el user no puede correr
+    # Chrome con debug port abierto (e.g., en sidecar Vultr).
     #
     #   USE_CAMOUFOX=true          (recomendado 2026-05-10 si patchright
     #                              tampoco pasa REPUVE)
@@ -363,7 +379,12 @@ async def _run_query(plate: str | None, vin: str | None) -> RepuveResult:
     #     Stock Playwright Chromium. Para tests + casos donde anti-detect
     #     no aplica.
     if not use_camoufox:
-        if os.environ.get("USE_PATCHRIGHT", "").lower() == "true":
+        if use_real_chrome:
+            # Stock playwright para connect_over_cdp — no necesitamos
+            # patchright/rebrowser/camoufox porque el browser real es del
+            # usuario, ya tiene fingerprint humano genuino.
+            from playwright.async_api import async_playwright
+        elif os.environ.get("USE_PATCHRIGHT", "").lower() == "true":
             from patchright.async_api import async_playwright
         elif os.environ.get("USE_REBROWSER_PLAYWRIGHT", "").lower() == "true":
             from rebrowser_playwright.async_api import async_playwright
@@ -446,7 +467,36 @@ async def _run_query(plate: str | None, vin: str | None) -> RepuveResult:
 
     @contextlib.asynccontextmanager
     async def _open_context():
-        if use_camoufox:
+        if use_real_chrome:
+            # CDP connection a Chrome del usuario corriendo con
+            # --remote-debugging-port=9222. Reusa los contexts existentes
+            # (donde viven sus cookies/login Google reales). NO cerramos
+            # el browser ni el context al terminar — es el Chrome del
+            # usuario, sería destructivo.
+            cdp_url = os.environ.get(
+                "REAL_CHROME_CDP_URL", "http://localhost:9222"
+            )
+            logger.warning(
+                "[engine] connecting to real Chrome via CDP at %s", cdp_url,
+            )
+            async with async_playwright() as p:
+                browser = await p.chromium.connect_over_cdp(cdp_url)
+                if browser.contexts:
+                    # Usa el contexto default (perfil real con cookies)
+                    context = browser.contexts[0]
+                else:
+                    # Fallback: si Chrome arrancó sin contextos visibles
+                    context = await browser.new_context()
+                try:
+                    yield context
+                finally:
+                    # NO cerrar — es Chrome del usuario, cerrar mataría
+                    # su browser entero. Solo desconectamos.
+                    try:
+                        await browser.close()
+                    except Exception:  # noqa: BLE001
+                        pass
+        elif use_camoufox:
             from camoufox.async_api import AsyncCamoufox
 
             # Camoufox-specific kwargs:
@@ -497,9 +547,15 @@ async def _run_query(plate: str | None, vin: str | None) -> RepuveResult:
         try:
             page = await context.new_page()
             # apply_stealth() es Chromium-specific (window.chrome,
-            # WebGL params, etc.). Camoufox ya hace fingerprint patches
-            # a nivel C++ — saltar para evitar over-spoofing.
-            if not use_camoufox:
+            # WebGL params, etc.). Saltar cuando:
+            #  - Camoufox: ya hace fingerprint patches a nivel C++,
+            #    nuestras patches JS encima son over-spoofing.
+            #  - Real Chrome (CDP): el browser es REAL del usuario,
+            #    su fingerprint es genuino. Sobreescribir con nuestros
+            #    valores falsos (e.g. "Intel Iris OpenGL Engine") puede
+            #    ROMPER el match con headers TLS/HTTP que Google ya
+            #    correlacionó — peor que no aplicar nada.
+            if not (use_camoufox or use_real_chrome):
                 await apply_stealth(page)
 
             # Fase 2 cookie_warmup_v1 — visita Google + YouTube ANTES de
@@ -536,13 +592,15 @@ async def _run_query(plate: str | None, vin: str | None) -> RepuveResult:
             # Mouse moves humanizados antes de interactuar — Google
             # considera "no mouse activity en la sesión" como señal bot.
             #
-            # Skip cuando Camoufox está activo: ya tiene `humanize=True`
-            # que hace smooth cursor trajectories a nivel C++ nativo.
-            # Aplicar nuestro JS-level _humanize_mouse encima causa
-            # double-humanization → cursor brincando errático por toda
-            # la pantalla (observado en smoke 2026-05-10). Camoufox
-            # alone es más natural y suficiente.
-            if not use_camoufox:
+            # Skip cuando:
+            #  - Camoufox: ya tiene `humanize=True` (smooth cursor
+            #    trajectories C++ nativo). Nuestro JS encima causa
+            #    cursor brincando errático.
+            #  - Real Chrome via CDP: es Chrome del usuario, ya tiene
+            #    actividad de mouse genuina de su uso real. Inyectar
+            #    moves random sería sospechoso (mouse "teletransportado"
+            #    a coordenadas aleatorias mientras él no lo movió).
+            if not (use_camoufox or use_real_chrome):
                 await _humanize_mouse(page)
 
             # Cambio 2026-05-10: page.fill() bypassa el dispatcher
