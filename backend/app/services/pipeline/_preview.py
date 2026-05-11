@@ -81,8 +81,8 @@ async def run_repuve_preview(
             vin=vin,
             raw_status="captcha_required",
             error=(
-                "REPUVE no respondio rapido. Usa el CTA 'Abrir REPUVE "
-                "oficial' abajo y sube la captura del modal."
+                "REPUVE solo permite consultas humanas — verificación "
+                "oficial en 30s manuales abajo."
             ),
         )
     except Exception as exc:  # noqa: BLE001
@@ -110,12 +110,16 @@ def build_preview_summary(
             f"Score: {score}/100. NO COMPRES ESTE AUTO."
         )
     if not repuve_result.queried:
-        why = repuve_result.error or "REPUVE no respondió"
+        # Tono intencional: el flow manual NO es un error técnico, es la
+        # forma legal y segura de consultar REPUVE. La gente seria que
+        # compra auto usado hace exactamente esto. Lo enmarcamos como
+        # feature, no bug.
         return (
-            f"Preview ({score}/100): REPUVE no se pudo consultar "
-            f"automáticamente — {why} Desbloquea el reporte completo para "
-            "que verifiquemos REPUVE manualmente, comparemos contra el "
-            "precio justo del mercado y analicemos fotos del anuncio con IA."
+            f"Análisis preliminar: {score}/100. Verificación REPUVE "
+            f"pendiente — toma 30 segundos completarla abajo (es el "
+            f"método oficial que usan los compradores serios). Después "
+            f"desbloquea el reporte completo con análisis IA de fotos, "
+            f"comparativo de precio justo y revisión del anuncio."
         )
     if repuve_result.has_legal_status is False:
         return (

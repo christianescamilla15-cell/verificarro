@@ -3,7 +3,7 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import {
   Lock, ShieldCheck, TrendingUp, Image as ImageIcon, Search,
   Fingerprint, FileText, MessageCircle, Unlock, ExternalLink,
-  AlertCircle,
+  AlertCircle, ClipboardCheck, Clock,
 } from 'lucide-react'
 import PaywallModal from '../components/PaywallModal.jsx'
 import ScoreChip from '../components/ScoreChip.jsx'
@@ -74,41 +74,63 @@ export default function PreviewReport() {
         <a href="/terminos" target="_blank" rel="noreferrer">Términos</a>.
       </aside>
 
-      {/* CTA HERO: REPUVE no se puede consultar desde nuestro servidor
-          (los servidores cloud están bloqueados de raíz). Pero TÚ desde
-          tu celular sí lo consultas en segundos sin obstáculos. */}
+      {/* CTA HERO — reframe 2026-05-10: tono "feature intencional" en vez
+          de "error técnico". REPUVE como sistema de seguridad pública NO
+          permite consultas programáticas — y eso ES CORRECTO. El flow
+          manual de 30s es el método legítimo. Lo presentamos como tal:
+          ShieldCheck icon, lenguaje de confianza, tiempos explícitos. */}
       {repuveAutoFailed && repuveLink && (
         <section className="report-section gov-hero">
           <div className="gov-hero-banner">
-            <AlertCircle size={22} strokeWidth={2.4} />
+            <ShieldCheck size={22} strokeWidth={2.4} />
             <div>
-              <strong>REPUVE solo permite consultas desde tu navegador</strong>
+              <strong>Verificación REPUVE oficial en 30 segundos</strong>
               <p>
-                El portal oficial bloquea consultas automatizadas desde
-                servidores externos por seguridad. Pero desde tu celular
-                tarda 10 segundos y es gratis — abre el portal, pega tu
-                placa, y sube la captura del resultado aquí abajo.
+                Por seguridad del padrón vehicular nacional, REPUVE solo
+                acepta consultas humanas — así garantiza que tu reporte
+                es real y no manipulado. Abre el portal pre-cargado abajo,
+                haz click en "Buscar", y nosotros leemos el resultado por
+                ti con IA. Es el método que usan los compradores serios.
               </p>
             </div>
           </div>
           <div className="gov-hero-instructions">
             <ol>
               <li>
-                Click <strong>"Abrir REPUVE oficial"</strong> abajo (abre nueva pestaña)
+                <Clock size={14} strokeWidth={2.4} aria-hidden="true" />
+                <span>
+                  <strong>Click "Abrir REPUVE oficial"</strong> abajo (~5s) —
+                  ya copiamos tu {data.plate ? 'placa' : 'NIV'} al portapapeles
+                </span>
               </li>
               <li>
-                Pega tu {data.plate ? 'placa' : 'NIV'}:{' '}
-                <code className="gov-hero-plate">{data.plate || data.vin}</code>{' '}
-                <button
-                  type="button"
-                  className="gov-hero-copy"
-                  onClick={() => navigator.clipboard?.writeText(data.plate || data.vin || '')}
-                >
-                  copiar
-                </button>
+                <Clock size={14} strokeWidth={2.4} aria-hidden="true" />
+                <span>
+                  En el portal, <strong>pega</strong> (Ctrl+V / pulsar y pegar) tu{' '}
+                  {data.plate ? 'placa' : 'NIV'}:{' '}
+                  <code className="gov-hero-plate">{data.plate || data.vin}</code>{' '}
+                  <button
+                    type="button"
+                    className="gov-hero-copy"
+                    onClick={() => navigator.clipboard?.writeText(data.plate || data.vin || '')}
+                    aria-label="Copiar placa al portapapeles"
+                  >
+                    <ClipboardCheck size={12} strokeWidth={2.4} /> copiar
+                  </button>
+                  (~10s)
+                </span>
               </li>
-              <li>Click en <strong>"Buscar"</strong></li>
-              <li>Toma una captura del resultado y súbela aquí abajo</li>
+              <li>
+                <Clock size={14} strokeWidth={2.4} aria-hidden="true" />
+                <span>Click <strong>"Buscar"</strong> en REPUVE (~5s)</span>
+              </li>
+              <li>
+                <Clock size={14} strokeWidth={2.4} aria-hidden="true" />
+                <span>
+                  Sube el <strong>PDF</strong> (botón "Exportar a PDF" en REPUVE)
+                  o una captura del resultado aquí abajo (~10s)
+                </span>
+              </li>
             </ol>
           </div>
           <a
@@ -116,9 +138,16 @@ export default function PreviewReport() {
             target="_blank"
             rel="noopener noreferrer"
             className="primary big gov-hero-cta"
+            onClick={() => {
+              // Auto-copy placa/NIV cuando el usuario abre el portal —
+              // está literal a 1 paste de distancia.
+              try {
+                navigator.clipboard?.writeText(data.plate || data.vin || '')
+              } catch (_) { /* clipboard puede estar bloqueado en algunos navegadores */ }
+            }}
           >
             <ExternalLink size={20} strokeWidth={2.4} />
-            Abrir REPUVE oficial
+            Abrir REPUVE oficial · 30s
           </a>
           <RepuveScreenshotUploader
             plate={data.plate}

@@ -1,9 +1,21 @@
-import { useRef, useState } from 'react'
+import { useRef, useState, useMemo } from 'react'
 import {
-  Camera, CheckCircle2, AlertCircle, RefreshCcw, X,
+  Camera, CheckCircle2, AlertCircle, RefreshCcw, X, FileText,
 } from 'lucide-react'
 import { api } from '../lib/api.js'
 import Spinner from './Spinner.jsx'
+
+/**
+ * Heurística mobile vs desktop — mobile bloquea screenshots de REPUVE
+ * con FLAG_SECURE en Android (mismo concepto en iOS con AVB), así que
+ * mobile users DEBEN usar "Exportar a PDF". Desktop sí puede screenshot
+ * tradicional. Cambia el copy según el caso.
+ */
+function detectIsMobile() {
+  if (typeof navigator === 'undefined') return false
+  const ua = navigator.userAgent || ''
+  return /Mobi|Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua)
+}
 
 /**
  * Subir captura del modal REPUVE (post-consulta manual en repuve.gob.mx)
@@ -30,6 +42,7 @@ export default function RepuveScreenshotUploader({
   const [previewUrl, setPreviewUrl] = useState(null)
   const [error, setError] = useState(null)
   const [warning, setWarning] = useState(null)
+  const isMobile = useMemo(detectIsMobile, [])
 
   function pickFile() {
     fileInputRef.current?.click()
@@ -133,7 +146,11 @@ export default function RepuveScreenshotUploader({
   return (
     <div className="repuve-uploader" role="region" aria-label="Subir captura REPUVE">
       <div className="repuve-uploader-header">
-        <strong>Ya tienes el resultado? Sube el PDF o captura</strong>
+        <strong>
+          {isMobile
+            ? 'Paso 4 — Sube el PDF de REPUVE'
+            : 'Paso 4 — Sube el PDF o captura del resultado'}
+        </strong>
         {onCancel && (
           <button
             type="button"
@@ -146,12 +163,25 @@ export default function RepuveScreenshotUploader({
         )}
       </div>
 
-      <p className="repuve-uploader-desc">
-        En REPUVE, despues de "Buscar", usa el boton{' '}
-        <strong>"Exportar a PDF"</strong> y sube ese archivo aqui.
-        Tambien aceptamos captura de pantalla (JPG/PNG) si tu celular
-        te permite tomarla.
-      </p>
+      {/* Instrucciones específicas por device — Android/iOS bloquean
+          screenshots de REPUVE (FLAG_SECURE / equivalente), así que
+          mobile DEBE usar "Exportar a PDF". Desktop puede cualquiera. */}
+      {isMobile ? (
+        <p className="repuve-uploader-desc">
+          <FileText size={14} strokeWidth={2.4} aria-hidden="true" />{' '}
+          En REPUVE móvil: pulsa el botón <strong>"Exportar a PDF"</strong> al
+          final del modal de resultado (las capturas no funcionan en móvil,
+          REPUVE las bloquea por seguridad). Súbelo aquí.
+        </p>
+      ) : (
+        <p className="repuve-uploader-desc">
+          <Camera size={14} strokeWidth={2.4} aria-hidden="true" />{' '}
+          En desktop: toma captura del resultado con{' '}
+          <kbd>Win+Shift+S</kbd> (Windows) o{' '}
+          <kbd>Cmd+Shift+4</kbd> (Mac). Súbela aquí. También aceptamos
+          el PDF si prefieres <strong>"Exportar a PDF"</strong>.
+        </p>
+      )}
 
       <input
         ref={fileInputRef}
@@ -167,8 +197,17 @@ export default function RepuveScreenshotUploader({
           className="primary big repuve-uploader-cta"
           onClick={pickFile}
         >
-          <Camera size={20} strokeWidth={2.4} />
-          Subir PDF o captura de REPUVE
+          {isMobile ? (
+            <>
+              <FileText size={20} strokeWidth={2.4} />
+              Subir PDF de REPUVE
+            </>
+          ) : (
+            <>
+              <Camera size={20} strokeWidth={2.4} />
+              Subir PDF o captura de REPUVE
+            </>
+          )}
         </button>
       )}
 
