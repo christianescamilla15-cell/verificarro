@@ -422,3 +422,154 @@ async def _is_blocked(frame: "Frame") -> bool:
         return _BLOCK_MARKER.lower() in (body_text or "").lower()
     except Exception:  # noqa: BLE001
         return False
+
+
+# ---------------------------------------------------------------------------
+# User-driven variant: pipe audio al usuario via WebSocket, recibe respuesta
+
+from typing import Callable, Awaitable, Optional
+
+
+async def solve_with_user_input(
+    page: "Page",
+    *,
+    audio_callback: Callable[[bytes], Awaitable[None]],
+    answer_provider: Callable[[float], Awaitable[Optional[str]]],
+    challenge_timeout_sec: float = 10.0,
+    answer_timeout_sec: float = 60.0,
+) -> bool:
+    """Variant del solver donde el USUARIO transcribe el audio (no Whisper).
+
+    Innovación 2026-05-10: pipe audio en vivo al frontend via WebSocket,
+    usuario escucha 3 segundos y tipea los dígitos. Sin 2Captcha externo,
+    sin Whisper local. La actividad humana en tiempo real DEBE pasar el
+    scoring de Google porque ES exactamente lo que reCAPTCHA audio
+    challenge fue diseñado para.
+
+    Flow:
+      1. Espera challenge frame ≤10s
+      2. Si NO aparece → return True (form ya pasó solo)
+      3. Click audio button
+      4. Descarga mp3
+      5. `audio_callback(mp3_bytes)` ← consumer envía bytes al usuario
+      6. `answer_provider(timeout)` ← consumer espera la respuesta del user
+      7. Si user responde → tipea + click verify + espera token
+      8. Return True/False según token aparezca
+
+    Args:
+        audio_callback: async fn que recibe los bytes del .mp3 y los envía
+            al usuario (ej. via WebSocket).
+        answer_provider: async fn que awaits la respuesta del user (string
+            de dígitos). Devuelve None si timeout o cancelación.
+
+    Diferencia vs `solve_invisible_recaptcha_audio`:
+        - Esa usa Whisper local (no requiere user input pero falla si
+          REPUVE no offers challenge UI — empíricamente nunca lo hace
+          en invisible v2 con score bajo).
+        - Esta es user-driven: el feedback humano genuino hace que
+          Google clasifique la sesión como humana real, mejorando el
+          escenario donde la otra falla.
+    """
+    logger.warning("[audio-live] solver invocado (user-driven)")
+
+    # 1. Localizar challenge frame
+    frame = await _find_challenge_frame(page, timeout_sec=challenge_timeout_sec)
+    if not frame:
+        logger.warning(
+            "[audio-live] Sin challenge frame — REPUVE no ofreció audio. "
+            "Probable que invisible v2 auto-resolvió o auto-rechazó."
+        )
+        return True
+
+    logger.warning("[audio-live] Challenge detectado, driving audio flow")
+
+    # 2. Click audio button
+    try:
+        await frame.wait_for_selector(_SEL_AUDIO_BUTTON, timeout=5_000)
+        await asyncio.sleep(random.uniform(0.4, 0.9))
+        await frame.locator(_SEL_AUDIO_BUTTON).click(delay=random.randint(80, 180))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[audio-live] No pude clickear audio button: %s", exc)
+        return False
+
+    if await _is_blocked(frame):
+        logger.warning("[audio-live] Google bloqueó tras audio click")
+        return False
+
+    # 3. Leer URL del mp3
+    try:
+        await frame.wait_for_selector(_SEL_AUDIO_DOWNLOAD, timeout=10_000)
+        audio_url = await frame.locator(_SEL_AUDIO_DOWNLOAD).get_attribute("href")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[audio-live] No encontré download link: %s", exc)
+        return False
+    if not audio_url:
+        return False
+
+    # 4. Descargar mp3
+    mp3_bytes = await _download_mp3(audio_url)
+    if not mp3_bytes:
+        logger.warning("[audio-live] mp3 download falló")
+        return False
+
+    # 5. Pipe al usuario
+    try:
+        await audio_callback(mp3_bytes)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[audio-live] audio_callback raise: %s", exc)
+        return False
+
+    # 6. Esperar respuesta del user
+    user_answer = await answer_provider(answer_timeout_sec)
+    if not user_answer:
+        logger.warning("[audio-live] user no respondió en %.0fs", answer_timeout_sec)
+        return False
+
+    # Limpiar respuesta — reCAPTCHA acepta solo alfanumérico
+    user_answer = re.sub(r"[^A-Za-z0-9]", "", user_answer)
+    if not user_answer:
+        logger.warning("[audio-live] user answer vacía tras clean")
+        return False
+
+    logger.warning("[audio-live] user answered: %d chars", len(user_answer))
+
+    # 7. Tipear respuesta + verify
+    try:
+        await frame.locator(_SEL_AUDIO_RESPONSE_INPUT).click(
+            delay=random.randint(60, 130),
+        )
+        await asyncio.sleep(random.uniform(0.2, 0.5))
+        await frame.locator(_SEL_AUDIO_RESPONSE_INPUT).fill("")
+        try:
+            await frame.locator(_SEL_AUDIO_RESPONSE_INPUT).press_sequentially(
+                user_answer, delay=random.randint(80, 180),
+            )
+        except AttributeError:
+            await frame.locator(_SEL_AUDIO_RESPONSE_INPUT).type(
+                user_answer, delay=random.randint(80, 180),
+            )
+        await asyncio.sleep(random.uniform(0.3, 0.8))
+        await frame.locator(_SEL_VERIFY_BUTTON).click(
+            delay=random.randint(100, 200),
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[audio-live] Type/verify falló: %s", exc)
+        return False
+
+    # 8. Esperar token en main page
+    deadline = asyncio.get_running_loop().time() + 10.0
+    while asyncio.get_running_loop().time() < deadline:
+        token = await _read_token(page)
+        if token:
+            logger.warning(
+                "[audio-live] ¡ÉXITO! Token recibido (len=%d) — user-driven captcha pasó",
+                len(token),
+            )
+            return True
+        if await _is_blocked(frame):
+            logger.warning("[audio-live] Google rechazó la respuesta del user")
+            return False
+        await asyncio.sleep(0.5)
+
+    logger.warning("[audio-live] Timeout esperando token tras verify")
+    return False

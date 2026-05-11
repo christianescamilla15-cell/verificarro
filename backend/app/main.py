@@ -24,6 +24,7 @@ from app.api import (  # noqa: E402
     health,
     payments,
     repuve_extension,
+    repuve_live,
     repuve_screenshot,
     scan,
 )
@@ -248,6 +249,7 @@ def create_app() -> FastAPI:
     app.include_router(scan.router, prefix="/api")
     app.include_router(repuve_extension.router, prefix="/api")
     app.include_router(repuve_screenshot.router, prefix="/api")
+    app.include_router(repuve_live.router, prefix="/api")
 
     return app
 
