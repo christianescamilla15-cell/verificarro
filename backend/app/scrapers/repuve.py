@@ -343,7 +343,6 @@ async def _query_remote(
 async def _run_query(plate: str | None, vin: str | None) -> RepuveResult:
     settings = get_settings()
     use_real_chrome = os.environ.get("USE_REAL_CHROME", "").lower() == "true"
-    use_camoufox = os.environ.get("USE_CAMOUFOX", "").lower() == "true"
 
     # Anti-detect engine selection. CINCO opciones por orden de
     # autenticidad (más cerca de "humano real" arriba):
@@ -363,28 +362,60 @@ async def _run_query(plate: str | None, vin: str | None) -> RepuveResult:
     # su propio browser y son útiles cuando el user no puede correr
     # Chrome con debug port abierto (e.g., en sidecar Vultr).
     #
-    #   USE_CAMOUFOX=true          (recomendado 2026-05-10 si patchright
-    #                              tampoco pasa REPUVE)
+    #   USE_CAMOUFOX=true|false    (DEFAULT: auto-detect — usa camoufox
+    #                              si el paquete está instalado)
     #     Firefox custom-compiled. Fingerprint patches a nivel C++ —
     #     antes de que JS pueda inspeccionar. Benchmarks 2026 reportan
     #     0% headless detection. Diferente engine que Playwright stock
     #     (necesita su propio binary, ~530 MB Firefox 135 custom).
     #     API: AsyncCamoufox() context manager → Browser directly.
+    #     Cambio 2026-05-03 (Quick Win #3): si el paquete `camoufox`
+    #     está importable, se usa por default sin necesitar la env var.
+    #     Para forzar stock (test, debugging): USE_CAMOUFOX=false.
     #
-    #   USE_PATCHRIGHT=true        (intermedio)
+    #   USE_PATCHRIGHT=true        (NO recomendado — tiene bug 2Captcha)
     #     CDP isolation patches a nivel JavaScript-isolation. ~67%
     #     headless detection reduction. Drop-in Playwright Chromium.
     #     ⚠ Smoke 2026-05-10 mostró que rompe la inyección 2Captcha
     #     (window.grecaptcha no visible desde page.evaluate isolated
     #     world). Si usas patchright + 2Captcha, la inyección sale
     #     "no_grecaptcha_api" y el form se manda incompleto.
+    #     NUNCA elegido por default. Solo via env var explícita.
     #
     #   USE_REBROWSER_PLAYWRIGHT=true  (legacy)
     #     Corrige runtimeEnableLeak + pwInitScripts. Drop-in Chromium.
     #
-    #   (nada set)
-    #     Stock Playwright Chromium. Para tests + casos donde anti-detect
-    #     no aplica.
+    #   USE_CAMOUFOX=false (override) o camoufox no instalado
+    #     Stock Playwright Chromium. Default solo si camoufox no
+    #     disponible. Para tests + entornos donde anti-detect no aplica.
+
+    # Camoufox preference resolution (Quick Win #3, 2026-05-03):
+    # treat the env var as a TRI-STATE — explicit on, explicit off,
+    # or unset. Unset means "auto-detect": prefer camoufox when the
+    # package can be imported, fall through to stock otherwise.
+    _camoufox_env = os.environ.get("USE_CAMOUFOX", "").lower()
+    if _camoufox_env == "true":
+        use_camoufox = True
+    elif _camoufox_env == "false":
+        use_camoufox = False
+    else:
+        # Unset → auto-detect
+        try:
+            import camoufox  # noqa: F401
+            use_camoufox = True
+            logger.info(
+                "REPUVE driver: camoufox detected; using as default. "
+                "Override with USE_CAMOUFOX=false to force stock Playwright."
+            )
+        except ImportError:
+            use_camoufox = False
+            logger.warning(
+                "REPUVE driver: camoufox NOT installed; falling back to "
+                "stock Playwright Chromium. Capture rate against gob.mx "
+                "WAF will be materially worse (~30%% vs ~80-95%% with "
+                "camoufox + residential MX proxy). Install camoufox + "
+                "set USE_CAMOUFOX=true to enable; see DEPLOY.md."
+            )
     if not use_camoufox:
         if use_real_chrome:
             # Stock playwright para connect_over_cdp — no necesitamos
