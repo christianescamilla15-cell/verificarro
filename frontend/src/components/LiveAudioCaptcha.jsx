@@ -34,12 +34,18 @@ export default function LiveAudioCaptcha({ plate, vin, onResult, onCancel }) {
   const inputRef = useRef(null)
 
   useEffect(() => {
-    // Construye WS URL desde la origin de la API
-    const apiBase = import.meta.env.VITE_API_URL || window.location.origin
+    // Construye WS URL desde la BASE de la API (verificarro-api.onrender.com
+    // en prod, vacío en dev). El env var correcto es VITE_API_BASE (matchea
+    // api.js). Si está vacío (dev), usa origin del browser (vite dev proxy
+    // tiene que estar configurado para WS — ver vite.config.js).
+    const apiBase = import.meta.env.VITE_API_BASE || window.location.origin
     const wsUrl = apiBase
       .replace(/^http:/, 'ws:')
       .replace(/^https:/, 'wss:')
       + '/api/repuve/live'
+
+    // eslint-disable-next-line no-console
+    console.log('[LiveAudioCaptcha] connecting WS to', wsUrl)
 
     const ws = new WebSocket(wsUrl)
     wsRef.current = ws
