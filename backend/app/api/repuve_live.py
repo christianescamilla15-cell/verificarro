@@ -222,36 +222,83 @@ async def _run_user_driven_query(
 
     await status_callback("Lanzando navegador anti-detect...")
 
-    try:
-        from camoufox.async_api import AsyncCamoufox
-    except ImportError:
-        return RepuveResult(
-            queried=False, plate=plate, vin=vin,
-            error="Camoufox no instalado en server (feature requiere camoufox)",
-        )
-
     import os
     from pathlib import Path
     from app.config import get_settings
-    from app.scrapers.stealth import apply_stealth  # noqa: F401  (en uso defensivo)
+    from app.scrapers.stealth import apply_stealth
 
     settings = get_settings()
     profile_dir = settings.playwright_profile_dir
     Path(profile_dir).mkdir(parents=True, exist_ok=True)
 
-    cf_kwargs = {
-        "persistent_context": True,
-        "user_data_dir": profile_dir,
-        "headless": settings.playwright_headless,
-        "locale": "es-MX",
-        "geoip": True,
-        "humanize": True,
-        "os": ["windows"],
-        "main_world_eval": True,
-    }
+    # Engine selection: Camoufox preferido (mejor stealth + más probable
+    # que Google muestre challenge UI), pero fallback a stock Playwright
+    # si Camoufox no está instalado en el deploy target (Render no
+    # ejecuta `python -m camoufox fetch` durante build por defecto —
+    # el Firefox custom de 530MB excede limites de build cache).
+    #
+    # Para el LIVE audio path, stock Playwright funciona porque NO
+    # estamos inyectando 2Captcha tokens en el main world — solo
+    # esperando que Google muestre challenge iframe y lo driveamos.
+    use_camoufox = False
+    try:
+        from camoufox.async_api import AsyncCamoufox
+        use_camoufox = True
+    except ImportError:
+        logger.info("Camoufox no disponible — usando stock Playwright")
 
-    async with AsyncCamoufox(**cf_kwargs) as context:
+    # Context manager unificado
+    import contextlib
+
+    @contextlib.asynccontextmanager
+    async def _open_browser():
+        if use_camoufox:
+            cf_kwargs = {
+                "persistent_context": True,
+                "user_data_dir": profile_dir,
+                "headless": settings.playwright_headless,
+                "locale": "es-MX",
+                "geoip": True,
+                "humanize": True,
+                "os": ["windows"],
+                "main_world_eval": True,
+            }
+            try:
+                async with AsyncCamoufox(**cf_kwargs) as ctx:
+                    yield ctx, True
+                return
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Camoufox launch failed (%s) — fallback a stock Playwright", exc,
+                )
+
+        # Stock Playwright path (fallback OR primary si no hay camoufox)
+        from playwright.async_api import async_playwright
+        launch_args = [
+            "--ignore-certificate-errors",
+            "--disable-blink-features=AutomationControlled",
+        ]
+        async with async_playwright() as p:
+            ctx = await p.chromium.launch_persistent_context(
+                user_data_dir=profile_dir,
+                headless=settings.playwright_headless,
+                args=launch_args,
+                locale="es-MX",
+                ignore_https_errors=True,
+                timezone_id="America/Mexico_City",
+            )
+            try:
+                yield ctx, False
+            finally:
+                await ctx.close()
+
+    async with _open_browser() as (context, is_camoufox):
         page = await context.new_page()
+        # Stock Playwright: aplicar stealth manualmente. Camoufox lo hace
+        # a nivel C++ nativo, no necesita nuestro init script.
+        if not is_camoufox:
+            await apply_stealth(page)
+
         await page.goto(
             repuve.REPUVE_URL,
             wait_until="networkidle",

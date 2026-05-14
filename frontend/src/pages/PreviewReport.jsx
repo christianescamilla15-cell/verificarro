@@ -26,9 +26,9 @@ export default function PreviewReport() {
   const navigate = useNavigate()
   const [data, setData] = useState(location.state?.initial || null)
   const [paywallOpen, setPaywallOpen] = useState(false)
-  // 'idle' = show option to try live | 'trying' = LiveAudioCaptcha mounted
-  // | 'failed' = fall back to manual upload (audio path didn't work)
-  const [livePath, setLivePath] = useState('idle')
+  // 'auto-pending' = aún no montado | 'trying' = LiveAudioCaptcha live
+  // | 'failed' = path live falló o se canceló, mostrar manual
+  const [livePath, setLivePath] = useState('auto-pending')
 
   useEffect(() => {
     if (!data && reportId) {
@@ -57,6 +57,16 @@ export default function PreviewReport() {
   // ¿REPUVE auto-query falló? Cuando falla, hacemos hero los links manuales
   // porque son la ÚNICA forma confiable de verificar REPUVE en este momento.
   const repuveAutoFailed = !repuve.queried && repuve.raw_status === 'captcha_required'
+
+  // Auto-start live audio path en cuanto montemos si REPUVE auto falló.
+  // UX: el usuario no necesita click extra — Verificarro intenta resolver
+  // el captcha automáticamente desde el momento que entra al preview.
+  // Si live falla (Google no muestra challenge / WS error), cae a manual.
+  useEffect(() => {
+    if (repuveAutoFailed && livePath === 'auto-pending') {
+      setLivePath('trying')
+    }
+  }, [repuveAutoFailed, livePath])
 
   // Filtrar y priorizar links: primero los aplicables a la ubicación, después los demás
   const sortedLinks = (data.consultation_links || [])
@@ -137,27 +147,12 @@ export default function PreviewReport() {
               </li>
             </ol>
           </div>
-          {/* PRIMARY PATH — Verificación live (idea 2 pioneer, 2026-05-10).
-              Try first because UX es ~3s del user vs ~30s manual flow.
-              Si REPUVE no offers challenge UI (común), degrada y user
-              cae al manual upload de abajo. */}
-          {livePath === 'idle' && (
-            <div className="gov-hero-live-cta">
-              <button
-                type="button"
-                className="primary big gov-hero-cta"
-                onClick={() => setLivePath('trying')}
-              >
-                <Headphones size={20} strokeWidth={2.4} />
-                Verificar en vivo · 3s
-                <small className="cta-sub">
-                  <Zap size={12} strokeWidth={2.4} aria-hidden="true" />
-                  Beta — Nosotros consultamos, tú escuchas un audio corto
-                </small>
-              </button>
-            </div>
-          )}
-
+          {/* PRIMARY PATH — Verificación live AUTO-START (idea 2 pioneer
+              2026-05-10). El componente arranca solo cuando montamos
+              PreviewReport con repuveAutoFailed=true. UX: cero clicks
+              extra del usuario para iniciar — el captcha aparece
+              "automáticamente" en su pantalla cuando aplica.
+              Si live falla → livePath='failed' → manual upload aparece. */}
           {livePath === 'trying' && (
             <LiveAudioCaptcha
               plate={data.plate}
@@ -181,13 +176,20 @@ export default function PreviewReport() {
             />
           )}
 
-          {/* FALLBACK PATH — Manual upload. Mostrar SIEMPRE excepto
-              cuando live esté en vuelo, para que el user pueda elegir
-              su path sin esperar. */}
+          {/* FALLBACK PATH — Manual upload. Aparece cuando:
+              - livePath='failed' (auto-attempt no funcionó, user cae al manual)
+              - livePath='auto-pending' (frame between mount y useEffect set)
+              No aparece durante 'trying' para no distraer.
+              Si live SÍ tuvo éxito, livePath vuelve a 'auto-pending' y
+              el componente está unmounted — no se ve este bloque tampoco. */}
           {livePath !== 'trying' && (
             <>
               <div className="gov-hero-divider">
-                <span>O hazlo tú mismo</span>
+                <span>
+                  {livePath === 'failed'
+                    ? 'Modo automático no funcionó — alternativa manual'
+                    : 'O hazlo tú mismo'}
+                </span>
               </div>
               <a
                 href={repuveLink.url}
