@@ -227,8 +227,9 @@ def _capture_techniques(settings) -> dict:
             getattr(settings, "playwright_profile_dir", "")
         ),
         "cookie_warmup": (
-            os.environ.get("SCRAPE_COOKIE_WARMUP", "").lower() == "true"
+            os.environ.get("SCRAPE_COOKIE_WARMUP", "true").lower() != "false"
         ),
+        "cookie_warmup_targets": "gob.mx,gob.mx/repuve,google.com.mx,youtube.com",
     }
 
 
@@ -562,12 +563,26 @@ async def _run_query(plate: str | None, vin: str | None) -> RepuveResult:
             if not (use_camoufox or use_real_chrome):
                 await apply_stealth(page)
 
-            # Fase 2 cookie_warmup_v1 — visita Google + YouTube ANTES de
-            # REPUVE para acumular cookies _ga, NID, etc. Reduce el score
-            # bot del reCaptcha v3 al hacer que el browser parezca tener
-            # historia de uso humano. Activa via SCRAPE_COOKIE_WARMUP=true.
-            if os.environ.get("SCRAPE_COOKIE_WARMUP", "").lower() == "true":
+            # cookie_warmup_v2 (2026-05-03) — visita el ecosistema gob.mx
+            # ANTES de la consulta REPUVE. Hipótesis: el WAF de gob.mx
+            # reconoce browsers que ya tienen cookies de gob.mx-family
+            # como sesiones "browseando el portal" y los trata con menos
+            # severidad que un drive-by directo a /ciudadania/.
+            #
+            # Cambio v1→v2:
+            # - Default es ON (antes opt-in). Override con SCRAPE_COOKIE_WARMUP=false.
+            # - Lista ahora incluye gob.mx siblings además de Google/YouTube.
+            #   gob.mx + www.gob.mx/repuve son los más importantes: warming
+            #   directamente en el mismo dominio raíz que sirve el WAF.
+            # - Cada visita tiene try/except aislado para que un sibling
+            #   roto no aborte toda la cadena.
+            warmup_enabled = os.environ.get(
+                "SCRAPE_COOKIE_WARMUP", "true"
+            ).lower() != "false"
+            if warmup_enabled:
                 for warmup_url in (
+                    "https://www.gob.mx",
+                    "https://www.gob.mx/repuve",
                     "https://www.google.com.mx",
                     "https://www.youtube.com",
                 ):
