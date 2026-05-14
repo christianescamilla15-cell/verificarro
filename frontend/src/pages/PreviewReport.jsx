@@ -3,13 +3,14 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import {
   Lock, ShieldCheck, TrendingUp, Image as ImageIcon, Search,
   Fingerprint, FileText, MessageCircle, Unlock, ExternalLink,
-  AlertCircle, ClipboardCheck, Clock,
+  AlertCircle, ClipboardCheck, Clock, Headphones, Zap,
 } from 'lucide-react'
 import PaywallModal from '../components/PaywallModal.jsx'
 import ScoreChip from '../components/ScoreChip.jsx'
 import KVTable from '../components/KVTable.jsx'
 import Spinner from '../components/Spinner.jsx'
 import RepuveScreenshotUploader from '../components/RepuveScreenshotUploader.jsx'
+import LiveAudioCaptcha from '../components/LiveAudioCaptcha.jsx'
 
 /**
  * Muestra el preview gratis del reporte: score visible + REPUVE básico
@@ -25,6 +26,9 @@ export default function PreviewReport() {
   const navigate = useNavigate()
   const [data, setData] = useState(location.state?.initial || null)
   const [paywallOpen, setPaywallOpen] = useState(false)
+  // 'idle' = show option to try live | 'trying' = LiveAudioCaptcha mounted
+  // | 'failed' = fall back to manual upload (audio path didn't work)
+  const [livePath, setLivePath] = useState('idle')
 
   useEffect(() => {
     if (!data && reportId) {
@@ -133,40 +137,92 @@ export default function PreviewReport() {
               </li>
             </ol>
           </div>
-          <a
-            href={repuveLink.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="primary big gov-hero-cta"
-            onClick={() => {
-              // Auto-copy placa/NIV cuando el usuario abre el portal —
-              // está literal a 1 paste de distancia.
-              try {
-                navigator.clipboard?.writeText(data.plate || data.vin || '')
-              } catch (_) { /* clipboard puede estar bloqueado en algunos navegadores */ }
-            }}
-          >
-            <ExternalLink size={20} strokeWidth={2.4} />
-            Abrir REPUVE oficial · 30s
-          </a>
-          <RepuveScreenshotUploader
-            plate={data.plate}
-            vin={data.vin}
-            onResult={(parsed) => {
-              setData((prev) => prev && ({
-                ...prev,
-                repuve: {
-                  queried: parsed.queried,
-                  plate: parsed.plate,
-                  vin: parsed.vin,
-                  is_stolen: parsed.is_stolen,
-                  has_legal_status: parsed.has_legal_status,
-                  raw_status: parsed.raw_status,
-                  error: parsed.error,
-                },
-              }))
-            }}
-          />
+          {/* PRIMARY PATH — Verificación live (idea 2 pioneer, 2026-05-10).
+              Try first because UX es ~3s del user vs ~30s manual flow.
+              Si REPUVE no offers challenge UI (común), degrada y user
+              cae al manual upload de abajo. */}
+          {livePath === 'idle' && (
+            <div className="gov-hero-live-cta">
+              <button
+                type="button"
+                className="primary big gov-hero-cta"
+                onClick={() => setLivePath('trying')}
+              >
+                <Headphones size={20} strokeWidth={2.4} />
+                Verificar en vivo · 3s
+                <small className="cta-sub">
+                  <Zap size={12} strokeWidth={2.4} aria-hidden="true" />
+                  Beta — Nosotros consultamos, tú escuchas un audio corto
+                </small>
+              </button>
+            </div>
+          )}
+
+          {livePath === 'trying' && (
+            <LiveAudioCaptcha
+              plate={data.plate}
+              vin={data.vin}
+              onResult={(parsed) => {
+                setData((prev) => prev && ({
+                  ...prev,
+                  repuve: {
+                    queried: parsed.queried,
+                    plate: parsed.plate,
+                    vin: parsed.vin,
+                    is_stolen: parsed.is_stolen,
+                    has_legal_status: parsed.has_legal_status,
+                    raw_status: parsed.raw_status,
+                    error: parsed.error,
+                  },
+                }))
+                setLivePath('idle')
+              }}
+              onCancel={() => setLivePath('failed')}
+            />
+          )}
+
+          {/* FALLBACK PATH — Manual upload. Mostrar SIEMPRE excepto
+              cuando live esté en vuelo, para que el user pueda elegir
+              su path sin esperar. */}
+          {livePath !== 'trying' && (
+            <>
+              <div className="gov-hero-divider">
+                <span>O hazlo tú mismo</span>
+              </div>
+              <a
+                href={repuveLink.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="secondary big gov-hero-cta"
+                onClick={() => {
+                  try {
+                    navigator.clipboard?.writeText(data.plate || data.vin || '')
+                  } catch (_) { /* clipboard puede estar bloqueado */ }
+                }}
+              >
+                <ExternalLink size={20} strokeWidth={2.4} />
+                Abrir REPUVE oficial · 30s
+              </a>
+              <RepuveScreenshotUploader
+                plate={data.plate}
+                vin={data.vin}
+                onResult={(parsed) => {
+                  setData((prev) => prev && ({
+                    ...prev,
+                    repuve: {
+                      queried: parsed.queried,
+                      plate: parsed.plate,
+                      vin: parsed.vin,
+                      is_stolen: parsed.is_stolen,
+                      has_legal_status: parsed.has_legal_status,
+                      raw_status: parsed.raw_status,
+                      error: parsed.error,
+                    },
+                  }))
+                }}
+              />
+            </>
+          )}
         </section>
       )}
 
