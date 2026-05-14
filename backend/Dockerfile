@@ -55,18 +55,30 @@ RUN chown -R pwuser:pwuser /app && \
     chown -R pwuser:pwuser /home/pwuser
 USER pwuser
 
-# Fetch Camoufox Firefox custom (~530 MB binary + 65 MB GeoIP DB +
-# uBlock addon). Activa el path USE_CAMOUFOX y el live audio captcha
-# endpoint /api/repuve/live con stealth a nivel C++ (mucho mejor que
-# stock Playwright para que Google muestre captcha challenge UI).
+# NOTA 2026-05-14: Camoufox fetch DESHABILITADO en Render.
 #
-# IMPORTANTE: corre como pwuser para que el binary quede en su
-# home dir y sea accesible al runtime sin permission issues.
-# Build time adicional: ~30-60s primera vez (después cached por Docker).
-# Runtime RAM extra: ~200 MB cuando AsyncCamoufox arranca (Render
-# Starter 512 MB RAM puede llegar al límite con Chromium + Firefox
-# simultáneos — monitorear OOM, upgrade a Standard si pasa).
-RUN python -m camoufox fetch
+# Razones empíricas del smoke 09:22-09:26:
+#   1. Camoufox descargó a /home/pwuser/.cache/camoufox/ durante build,
+#      pero Render runtime usa /opt/render/.cache/ → cache miss, lo
+#      re-descarga en runtime (713MB extra, ~30s).
+#   2. Aún descargado correcto, Firefox custom de Camoufox necesita
+#      `glxtest` binary + libs OpenGL que la imagen Playwright base
+#      NO incluye. Camoufox crash con "FireTestProcess failed", luego
+#      timeout 180000ms en launch_persistent_context.
+#   3. Stock Playwright fallback DEL endpoint /api/repuve/live YA
+#      funciona (logs muestran [audio-live] solver invocado tras el
+#      fallback). Camoufox solo agregaba 4 minutos de latencia + crash.
+#
+# Si en el futuro necesitamos Camoufox en Render:
+#   - Cambiar base image a una con OpenGL libs (e.g., python:3.12 +
+#     apt install libgtk-3-0 libgl1 libegl1 libgles2)
+#   - Setear XDG_CACHE_HOME=/opt/render/.cache antes del fetch
+#   - O usar runtime download (no Dockerfile) + esperar 35s first request
+#
+# Camoufox sigue disponible para DEV local (Christian's machine) donde
+# el binary se descarga manualmente con `python -m camoufox fetch`.
+# El código en repuve_live.py auto-detecta y hace fallback en runtime.
+# RUN python -m camoufox fetch
 
 EXPOSE 3009
 

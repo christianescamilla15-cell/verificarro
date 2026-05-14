@@ -231,21 +231,30 @@ async def _run_user_driven_query(
     profile_dir = settings.playwright_profile_dir
     Path(profile_dir).mkdir(parents=True, exist_ok=True)
 
-    # Engine selection: Camoufox preferido (mejor stealth + más probable
-    # que Google muestre challenge UI), pero fallback a stock Playwright
-    # si Camoufox no está instalado en el deploy target (Render no
-    # ejecuta `python -m camoufox fetch` durante build por defecto —
-    # el Firefox custom de 530MB excede limites de build cache).
+    # Engine selection 2026-05-14 (post-smoke en Render):
     #
-    # Para el LIVE audio path, stock Playwright funciona porque NO
-    # estamos inyectando 2Captcha tokens en el main world — solo
-    # esperando que Google muestre challenge iframe y lo driveamos.
-    use_camoufox = False
-    try:
-        from camoufox.async_api import AsyncCamoufox
-        use_camoufox = True
-    except ImportError:
-        logger.info("Camoufox no disponible — usando stock Playwright")
+    # Stock Playwright DEFAULT en producción. Camoufox solo si
+    # USE_CAMOUFOX=true env var explícito.
+    #
+    # Razón: en Render, AsyncCamoufox() trigger runtime download
+    # (713MB en /opt/render/.cache) + Firefox crash por libs OpenGL
+    # faltantes en imagen Playwright base + 3 min timeout antes de
+    # fallback. Total: ~4 minutos de latencia inservible antes de
+    # que el stock fallback empiece. WebSocket del usuario ya está
+    # muerto para entonces.
+    #
+    # En DEV local (Christian's Windows con camoufox fetched
+    # manualmente + Windows que sí tiene libs gráficas), Camoufox
+    # funciona — por eso lo dejamos como opt-in.
+    use_camoufox = os.environ.get("USE_CAMOUFOX", "").lower() == "true"
+    if use_camoufox:
+        try:
+            from camoufox.async_api import AsyncCamoufox
+        except ImportError:
+            logger.warning("USE_CAMOUFOX=true pero camoufox no instalado — fallback a Playwright")
+            use_camoufox = False
+    else:
+        logger.info("Camoufox skipped (USE_CAMOUFOX != true) — stock Playwright direct")
 
     # Context manager unificado
     import contextlib
