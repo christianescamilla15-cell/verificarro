@@ -54,9 +54,14 @@ export default function PreviewReport() {
     ? '✅ Sin reportes de robo'
     : repuve.error || 'No consultado'
 
-  // ¿REPUVE auto-query falló? Cuando falla, hacemos hero los links manuales
-  // porque son la ÚNICA forma confiable de verificar REPUVE en este momento.
-  const repuveAutoFailed = !repuve.queried && repuve.raw_status === 'captcha_required'
+  // ¿REPUVE auto-query falló? Cualquier caso donde NO obtuvimos data
+  // útil — captcha rejected, REPUVE no respondió, error de red, etc.
+  // En todos esos casos necesitamos mostrar el flow manual al usuario.
+  // Antes solo capturaba raw_status='captcha_required' pero stock
+  // Playwright en Render produce raw_status=null + error genérico
+  // cuando REPUVE rechaza silencioso → hero desmontaba y usuario se
+  // quedaba sin opción de subir captura.
+  const repuveAutoFailed = !repuve.queried
 
   // Auto-start live audio path en cuanto montemos si REPUVE auto falló.
   // UX: el usuario no necesita click extra — Verificarro intenta resolver
