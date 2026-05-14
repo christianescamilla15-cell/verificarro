@@ -162,6 +162,7 @@ async def query(plate: str | None = None, vin: str | None = None) -> RepuveResul
                 plate=plate_norm,
                 vin=vin_norm,
                 error=f"Error al consultar REPUVE: {exc}",
+                scrape_stage="unhandled_exception",
             )
             _record_telemetry(
                 config_label, plate_norm, vin_norm,
@@ -255,6 +256,11 @@ def _record_telemetry(
                 "error": result.error,
                 "duration_ms": duration_ms,
                 "is_stolen": result.is_stolen,
+                # scrape_stage = where in the pipeline this attempt
+                # ended. Critical for analytics: "we are losing 40%
+                # of attempts at selector_not_found" tells us the WAF
+                # is the bottleneck, not the captcha layer.
+                "scrape_stage": result.scrape_stage or "unknown",
             },
         )
     except Exception:  # noqa: BLE001
@@ -598,15 +604,46 @@ async def _run_query(plate: str | None, vin: str | None) -> RepuveResult:
                             warmup_url, exc,
                         )
 
-            await page.goto(
-                REPUVE_URL,
-                wait_until="networkidle",
-                timeout=settings.scrape_timeout_ms,
-            )
+            try:
+                await page.goto(
+                    REPUVE_URL,
+                    wait_until="networkidle",
+                    timeout=settings.scrape_timeout_ms,
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("REPUVE page.goto failed: %s", exc)
+                return RepuveResult(
+                    queried=False,
+                    plate=plate,
+                    vin=vin,
+                    raw_status="page_load_failed",
+                    error=f"REPUVE no respondió a tiempo: {type(exc).__name__}",
+                    scrape_stage="page_load_failed",
+                )
             # Angular pinta el formulario después de domcontentloaded.
-            await page.wait_for_selector(
-                _SELECTORS["plate_input"], timeout=10_000
-            )
+            # Si el selector nunca aparece, el WAF probablemente sirvió
+            # una página recortada sin el SPA — captura clave de stage.
+            try:
+                await page.wait_for_selector(
+                    _SELECTORS["plate_input"], timeout=10_000
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "REPUVE form input selector not found within 10s — "
+                    "likely WAF served stripped page. exc=%s",
+                    type(exc).__name__,
+                )
+                return RepuveResult(
+                    queried=False,
+                    plate=plate,
+                    vin=vin,
+                    raw_status="page_load_failed",
+                    error=(
+                        "REPUVE no mostró el formulario de consulta. "
+                        "Reintenta más tarde o usa el flujo manual."
+                    ),
+                    scrape_stage="selector_not_found",
+                )
 
             # Mouse moves humanizados antes de interactuar — Google
             # considera "no mouse activity en la sesión" como señal bot.
@@ -691,17 +728,26 @@ async def _run_query(plate: str | None, vin: str | None) -> RepuveResult:
                     "REPUVE pidió reCaptcha. Consulta manualmente en "
                     "repuve.gob.mx y pega el resultado en la app."
                 )
+                # Distinguish "we never even got a token to submit"
+                # (solve_failed) from "we submitted but REPUVE rejected"
+                # (token_rejected). Both surface as captcha_required to
+                # the user, but the analytics need to know which layer
+                # is bleeding so we can prioritize Tier 2 work.
                 if recaptcha_solved or audio_solved:
                     error_msg = (
                         "REPUVE rechazó el token de reCaptcha. Reintenta "
                         "o consulta manualmente en repuve.gob.mx."
                     )
+                    stage = "captcha_token_rejected"
+                else:
+                    stage = "captcha_solve_failed"
                 return RepuveResult(
                     queried=False,
                     plate=plate,
                     vin=vin,
                     raw_status="captcha_required",
                     error=error_msg,
+                    scrape_stage=stage,
                 )
 
             modal_html = await _read_response_modal(page)
@@ -1236,6 +1282,7 @@ def parse_response(
             plate=plate,
             vin=vin,
             error="REPUVE no respondió",
+            scrape_stage="modal_empty",
         )
 
     not_found_markers = (
@@ -1282,6 +1329,18 @@ def parse_response(
     # el vehículo. "No encontrado" cuenta como query no exitosa.
     queried = is_stolen is not None
 
+    # Telemetry stage: success only when we got conclusive data.
+    # "not found" / unparseable modal both indicate the WAF + captcha
+    # passed but REPUVE itself had no useful answer — count as a
+    # different bucket (raw_status="no_encontrado" / "unparseable")
+    # so the analytics distinguish "we got through" from "we got data".
+    if queried:
+        stage = "success"
+    elif raw_status == "no_encontrado":
+        stage = "success"  # we got through; REPUVE just had no record
+    else:
+        stage = "unparseable"
+
     return RepuveResult(
         queried=queried,
         plate=plate,
@@ -1290,6 +1349,7 @@ def parse_response(
         has_legal_status=has_legal_status,
         raw_status=raw_status,
         error=error,
+        scrape_stage=stage,
     )
 
 

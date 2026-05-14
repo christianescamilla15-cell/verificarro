@@ -120,6 +120,33 @@ class RepuveResult(BaseModel):
     has_legal_status: bool | None = None
     raw_status: str | None = None
     error: str | None = None
+    # scrape_stage = where in the pipeline this attempt ended.
+    # Telemetry-only field — UI does not render it. Populated by the
+    # scraper to support per-stage failure analysis (e.g. "are we
+    # losing more attempts at WAF block-pre-captcha or at captcha
+    # solve?"). Added 2026-05-03 as Quick Win #2 of the capture-rate
+    # analysis.
+    #
+    # Vocabulary (extend cautiously; the analytics dashboard groups
+    # on this exact string):
+    #   - "success"                    — modal parsed, data returned
+    #   - "page_load_failed"           — REPUVE_URL did not load
+    #                                    (network / timeout / 5xx)
+    #   - "selector_not_found"         — page loaded but the form
+    #                                    inputs never appeared (likely
+    #                                    WAF served a stripped page)
+    #   - "captcha_widget_missing"     — form loaded but no reCaptcha
+    #                                    widget rendered (WAF served
+    #                                    page without anti-bot gate)
+    #   - "captcha_solve_failed"       — 2Captcha / audio solver gave
+    #                                    up before yielding a token
+    #   - "captcha_token_rejected"     — token was submitted but REPUVE
+    #                                    rejected it (token stale, IP
+    #                                    mismatch, etc.)
+    #   - "modal_empty"                — submit succeeded, modal opened,
+    #                                    body was blank
+    #   - "unhandled_exception"        — anything else in _run_query
+    scrape_stage: str | None = None
 
 
 class PriceEstimate(BaseModel):
