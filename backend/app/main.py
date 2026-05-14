@@ -137,6 +137,67 @@ async def lifespan(_app: FastAPI):
     except Exception:  # noqa: BLE001
         logger.exception("Playwright bootstrap falló (no-bloqueante)")
 
+    # Scrape stack health snapshot (Quick Win #4, 2026-05-03).
+    # Logs at boot which anti-detect features are configured so
+    # an operator can spot a misconfigured deploy in the first 10
+    # lines of Render logs instead of waiting for 50 failed REPUVE
+    # attempts to suspect something.
+    try:
+        from app.config import get_settings as _get_settings
+        _s = _get_settings()
+        _proxy_on = bool(
+            getattr(_s, "proxy_url", "") or getattr(_s, "proxy_server", "")
+        )
+        _captcha_solver_on = bool(getattr(_s, "captcha_solver_api_key", ""))
+        _audio_solver_on = bool(getattr(_s, "captcha_audio_enabled", False))
+        _camoufox_env = os.environ.get("USE_CAMOUFOX", "").lower()
+        if _camoufox_env in ("true", "false"):
+            _camoufox_state = f"explicit={_camoufox_env}"
+        else:
+            try:
+                import camoufox  # noqa: F401
+                _camoufox_state = "auto:installed"
+            except ImportError:
+                _camoufox_state = "auto:NOT-installed"
+        _warmup_on = os.environ.get(
+            "SCRAPE_COOKIE_WARMUP", "true"
+        ).lower() != "false"
+        logger.info(
+            "REPUVE stack health: camoufox=%s proxy=%s captcha_solver=%s "
+            "audio_captcha=%s cookie_warmup=%s",
+            _camoufox_state,
+            "on" if _proxy_on else "OFF",
+            "on" if _captcha_solver_on else "OFF",
+            "on" if _audio_solver_on else "OFF",
+            "on" if _warmup_on else "OFF",
+        )
+        # Hard warning when the deploy is missing the two biggest
+        # capture-rate levers: residential MX proxy and a working
+        # captcha solver. Both off = expected capture rate ~30%.
+        if not _proxy_on:
+            logger.warning(
+                "REPUVE stack: PROXY_URL / PROXY_SERVER not set. "
+                "Expect ~30%% capture rate (vs ~80%% with residential MX "
+                "proxy). Set PROXY_SERVER + PROXY_USERNAME + PROXY_PASSWORD."
+            )
+        if not _captcha_solver_on and not _audio_solver_on:
+            logger.warning(
+                "REPUVE stack: neither CAPTCHA_SOLVER_API_KEY (2Captcha) "
+                "nor CAPTCHA_AUDIO_ENABLED (Whisper local) is configured. "
+                "If REPUVE shows a captcha challenge, the query will fail "
+                "and fall back to manual user upload."
+            )
+        if _camoufox_state == "auto:NOT-installed":
+            logger.warning(
+                "REPUVE stack: camoufox package is not installed; this "
+                "deploy will use stock Playwright (lower capture rate). "
+                "See DEPLOY.md to add the camoufox install step."
+            )
+    except Exception:  # noqa: BLE001
+        logger.exception(
+            "REPUVE stack health snapshot failed (no-bloqueante)"
+        )
+
     yield
 
 
