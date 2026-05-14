@@ -49,8 +49,24 @@ COPY alembic.ini .
 
 # Crear non-root user. La imagen Playwright ya tiene un user `pwuser`
 # (uid 1001) preconfigurado para correr browsers sin sandbox issues.
-RUN chown -R pwuser:pwuser /app
+# Aseguramos que tenga home dir y cache dir para Camoufox antes del switch.
+RUN chown -R pwuser:pwuser /app && \
+    mkdir -p /home/pwuser/.cache && \
+    chown -R pwuser:pwuser /home/pwuser
 USER pwuser
+
+# Fetch Camoufox Firefox custom (~530 MB binary + 65 MB GeoIP DB +
+# uBlock addon). Activa el path USE_CAMOUFOX y el live audio captcha
+# endpoint /api/repuve/live con stealth a nivel C++ (mucho mejor que
+# stock Playwright para que Google muestre captcha challenge UI).
+#
+# IMPORTANTE: corre como pwuser para que el binary quede en su
+# home dir y sea accesible al runtime sin permission issues.
+# Build time adicional: ~30-60s primera vez (después cached por Docker).
+# Runtime RAM extra: ~200 MB cuando AsyncCamoufox arranca (Render
+# Starter 512 MB RAM puede llegar al límite con Chromium + Firefox
+# simultáneos — monitorear OOM, upgrade a Standard si pasa).
+RUN python -m camoufox fetch
 
 EXPOSE 3009
 
