@@ -279,3 +279,145 @@ def test_populate_summary_includes_recommendation() -> None:
 def _GREEN_PARTITION() -> int:
     """Constante local; coincide con `_GREEN_MIN` del módulo."""
     return 70
+
+
+# ---------------------------------------------------------------------------
+# Reglas de puntaje que faltaban (docs/reglas.md, sección Puntaje)
+
+import pytest  # noqa: E402
+
+from app.analyzers.scoring import _risk_level  # noqa: E402
+from app.models.report import VinAlertModel, VinCheck, VinDecodedModel  # noqa: E402
+
+
+@pytest.mark.parametrize(
+    ("score", "risk"),
+    [
+        (100, RiskLevel.GREEN),
+        (70, RiskLevel.GREEN),
+        (69, RiskLevel.YELLOW),
+        (40, RiskLevel.YELLOW),
+        (39, RiskLevel.RED),
+        (0, RiskLevel.RED),
+    ],
+)
+def test_risk_level_boundaries(score: int, risk: RiskLevel) -> None:
+    """verde ≥ 70 · amarillo 40-69 · rojo < 40."""
+    assert _risk_level(score) == risk
+
+
+def _score(**overrides) -> int:
+    return compute_score(_base_report(**overrides))[0]
+
+
+def test_repuve_legal_irregular_penalty_25() -> None:
+    assert _score(repuve=RepuveResult(queried=True, has_legal_status=False)) == 75
+
+
+def test_repuve_not_queried_has_no_penalty() -> None:
+    """Sin consulta no hay castigo: el tope del preview se aplica aparte."""
+    assert _score(repuve=RepuveResult(queried=False)) == 100
+
+
+@pytest.mark.parametrize(
+    ("delta", "expected"),
+    [
+        (30.0, 90),     # exactamente +30 % → sobrepuesto (-10)
+        (29.9, 100),
+        (-30.0, 85),    # exactamente -30 % → sospechosamente barato (-15)
+        (-29.9, 100),
+        (-80.0, 85),    # el castigo no crece con la magnitud
+    ],
+)
+def test_price_thresholds_are_inclusive(delta: float, expected: int) -> None:
+    price = PriceEstimate(fair_price_mxn=200_000, delta_pct=delta, comparables_count=10)
+    assert _score(price=price) == expected
+
+
+def test_price_without_fair_price_has_no_penalty() -> None:
+    price = PriceEstimate(fair_price_mxn=None, delta_pct=-60.0, comparables_count=0)
+    assert _score(price=price) == 100
+
+
+@pytest.mark.parametrize(("n", "expected"), [(1, 97), (5, 85), (6, 85), (20, 85)])
+def test_medium_findings_3_each_capped_at_15(n: int, expected: int) -> None:
+    findings = [
+        PhotoFinding(photo_index=i, issue="other", severity="medium", note="x")
+        for i in range(n)
+    ]
+    assert _score(photo_findings=findings) == expected
+
+
+@pytest.mark.parametrize(
+    ("severity", "n", "expected"),
+    [
+        ("high", 1, 85),
+        ("high", 2, 70),
+        ("high", 5, 70),     # tope 30
+        ("medium", 1, 95),
+        ("medium", 3, 85),
+        ("medium", 9, 85),   # tope 15
+        ("low", 10, 100),    # informativo, sin castigo
+    ],
+)
+def test_seller_penalties_and_caps(severity: str, n: int, expected: int) -> None:
+    findings = [SellerFinding(flag="other", severity=severity, note="x") for _ in range(n)]
+    assert _score(seller_findings=findings) == expected
+
+
+def _vin_check(*severities: str) -> VinCheck:
+    return VinCheck(
+        decoded=VinDecodedModel(
+            vin="5YFEPRAE0LP000001", valid_format=True, valid_checksum=True, wmi="5YF",
+        ),
+        matches_listing=False,
+        alerts=[VinAlertModel(severity=s, message="x") for s in severities],
+    )
+
+
+@pytest.mark.parametrize(
+    ("severities", "expected"),
+    [
+        (("high",), 75),
+        (("high", "high"), 50),
+        (("high", "high", "high"), 50),       # tope 50
+        (("medium",), 92),
+        (("medium", "medium", "medium"), 84),  # tope 16
+        (("high", "medium"), 75),             # con high, las medias no suman
+        (("low", "low"), 100),
+    ],
+)
+def test_vin_penalties_and_caps(severities: tuple[str, ...], expected: int) -> None:
+    assert _score(vin_check=_vin_check(*severities)) == expected
+
+
+def test_score_never_below_zero() -> None:
+    """Con todas las señales al máximo el puntaje se queda en 0, nunca negativo."""
+    rep = _base_report(
+        repuve=RepuveResult(queried=True, is_stolen=True, has_legal_status=False),
+        price=PriceEstimate(fair_price_mxn=200_000, delta_pct=-50.0, comparables_count=5),
+        photo_findings=[
+            PhotoFinding(photo_index=i, issue="rust", severity=s, note="x")
+            for i in range(10) for s in ("high", "medium", "low")
+        ],
+        description_findings=[
+            DescriptionFinding(flag="urgency", severity=s, excerpt="x")
+            for _ in range(10) for s in ("high", "medium", "low")
+        ],
+        seller_findings=[
+            SellerFinding(flag="new_account", severity=s, note="x")
+            for _ in range(5) for s in ("high", "medium")
+        ],
+        vin_check=_vin_check("high", "high"),
+    )
+    score, risk, _ = compute_score(rep)
+    assert score == 0
+    assert risk == RiskLevel.RED
+
+
+def test_stolen_penalty_is_terminal_not_cumulative_with_legal() -> None:
+    """Robado castiga 50 y no suma además la situación legal irregular."""
+    rep = _base_report(repuve=RepuveResult(queried=True, is_stolen=True, has_legal_status=False))
+    score, risk, _ = compute_score(rep)
+    assert score == 50
+    assert risk == RiskLevel.RED   # kill switch

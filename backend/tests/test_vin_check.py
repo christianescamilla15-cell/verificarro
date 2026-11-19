@@ -194,3 +194,64 @@ def test_clean_match_no_alerts() -> None:
     high = [a for a in result.alerts if a.severity == "high"]
     assert high == []
     assert result.matches_listing is True
+
+
+# ---------------------------------------------------------------------------
+# Reglas que faltaban (docs/reglas.md, sección VIN)
+
+
+def _check_digit(vin: str) -> str:
+    """Dígito verificador ISO 3779 calculado aparte (referencia de la prueba)."""
+    valores = dict(zip("ABCDEFGH", range(1, 9))) | {
+        "J": 1, "K": 2, "L": 3, "M": 4, "N": 5, "P": 7, "R": 9,
+        "S": 2, "T": 3, "U": 4, "V": 5, "W": 6, "X": 7, "Y": 8, "Z": 9,
+    } | {str(d): d for d in range(10)}
+    pesos = [8, 7, 6, 5, 4, 3, 2, 10, 0, 9, 8, 7, 6, 5, 4, 3, 2]
+    resto = sum(valores[c] * p for c, p in zip(vin, pesos)) % 11
+    return "X" if resto == 10 else str(resto)
+
+
+# Honda (WMI 2HG), año J = 2018, con dígito verificador correcto.
+_HONDA_2018 = "2HGFC2F6" + _check_digit("2HGFC2F60JH500001") + "JH500001"
+
+
+def test_invalid_checksum_is_medium_and_does_not_decide_match() -> None:
+    """Checksum inválido = alerta media informativa (hay VIN europeos que no
+    lo usan); por sí solo NO marca discrepancia con el anuncio."""
+    malo = "0" if _HONDA_2018[8] != "0" else "1"
+    vin = _HONDA_2018[:8] + malo + _HONDA_2018[9:]
+    result = check(vin, _listing(make="Honda", year=2018))
+    assert [a.severity for a in result.alerts] == ["medium"]
+    assert result.matches_listing is True
+
+
+def test_valid_vin_matching_listing_has_no_alerts() -> None:
+    result = check(_HONDA_2018, _listing(make="Honda", year=2018))
+    assert result.decoded.valid_checksum is True
+    assert result.alerts == []
+    assert result.matches_listing is True
+
+
+def test_scanned_vin_is_normalized_before_comparing() -> None:
+    """El VIN escaneado en minúsculas y con guiones se compara normalizado
+    contra el de la descripción y el de REPUVE."""
+    sucio = f"{_HONDA_2018[:3].lower()}-{_HONDA_2018[3:].lower()}"
+    result = check(
+        sucio,
+        _listing(make="Honda", year=2018, description=f"VIN {_HONDA_2018.lower()}"),
+        RepuveResult(queried=True, vin=_HONDA_2018),
+    )
+    assert result.vin_in_description == _HONDA_2018
+    assert result.alerts == []
+    assert result.matches_listing is True
+
+
+def test_any_high_alert_breaks_match_even_if_make_and_year_match() -> None:
+    """VIN de la descripción distinto (clonación) → high y sin coincidencia,
+    aunque marca y año del VIN físico coincidan con el anuncio."""
+    otro = "1HGCM82633A004352"
+    result = check(
+        _HONDA_2018, _listing(make="Honda", year=2018, description=f"VIN: {otro}"),
+    )
+    assert any(a.severity == "high" for a in result.alerts)
+    assert result.matches_listing is False
