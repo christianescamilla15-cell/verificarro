@@ -67,7 +67,8 @@ jobs:
       security-events: write
       contents: read
     container:
-      image: semgrep/semgrep
+      # Versión fija (la misma probada en local); el digest evita que una etiqueta reescrita cambie la imagen.
+      image: semgrep/semgrep:1.186.0@sha256:6e1b04340e60e910fbb4ddbf3c857ab0918f064417ad5ac530014ccb3cf8c8f1
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       # verificar_reportes.py (copia tal cual de la plantilla) lee con xml.etree el junit que genera pytest

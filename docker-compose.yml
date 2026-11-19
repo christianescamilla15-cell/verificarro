@@ -17,7 +17,8 @@ services:
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: verificarro
-      POSTGRES_PASSWORD: verificarro_dev
+      # Sólo para la base LOCAL de desarrollo; se puede cambiar con la variable POSTGRES_PASSWORD.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-verificarro_dev}
       POSTGRES_DB: verificarro
     ports:
       - "5432:5432"
@@ -37,7 +38,7 @@ services:
       - "3009:3009"
     environment:
       # Override del .env del proyecto para usar el Postgres del compose.
-      DATABASE_URL: postgresql+asyncpg://verificarro:verificarro_dev@postgres:5432/verificarro
+      DATABASE_URL: postgresql+asyncpg://verificarro:${POSTGRES_PASSWORD:-verificarro_dev}@postgres:5432/verificarro
       ENV: development
       # Las demás variables se leen del .env (montado volume abajo).
     env_file:
