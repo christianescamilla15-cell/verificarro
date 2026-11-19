@@ -156,7 +156,7 @@ def get_attempts(
     params.append(int(limit))
 
     with _connect() as conn:
-        cursor = conn.execute(
+        cursor = conn.execute(  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- WHERE armado con literales y valores con «?»
             f"""SELECT id, timestamp, config_label, plate, vin,
                 techniques_json, outcome_json, queried, raw_status,
                 duration_ms, captcha_solver_ms
@@ -209,12 +209,12 @@ def aggregate_stats(
     where_sql = (" WHERE " + " AND ".join(where)) if where else ""
 
     with _connect() as conn:
-        total = conn.execute(
+        total = conn.execute(  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- WHERE armado con literales y valores con «?»
             f"SELECT COUNT(*) FROM attempts {where_sql}", params,
         ).fetchone()[0]
 
         # Aggregate por config — también dame el raw_status más común
-        rows = conn.execute(
+        rows = conn.execute(  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- WHERE armado con literales y valores con «?»
             f"""SELECT config_label,
                        COUNT(*) AS attempts,
                        SUM(queried) AS queried_count,
@@ -234,7 +234,7 @@ def aggregate_stats(
             queried_count = r[2] or 0
             inner_params = list(params)
             inner_params.append(config_label)
-            common = conn.execute(
+            common = conn.execute(  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- WHERE armado con literales y valores con «?»
                 f"""SELECT raw_status, COUNT(*) AS c
                     FROM attempts {where_sql}
                     {"AND" if where else "WHERE"} config_label = ?

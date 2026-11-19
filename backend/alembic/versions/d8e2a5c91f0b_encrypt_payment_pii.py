@@ -89,7 +89,7 @@ def upgrade() -> None:
             continue
         set_clause = ", ".join(f"{k} = :{k}" for k in updates)
         conn.execute(
-            sa.text(f"UPDATE payments SET {set_clause} WHERE id = :id"),
+            sa.text(f"UPDATE payments SET {set_clause} WHERE id = :id"),  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- columnas de una tupla fija; valores como parámetros
             {"id": row.id, **updates},
         )
 
@@ -118,7 +118,7 @@ def downgrade() -> None:
             continue
         set_clause = ", ".join(f"{k} = :{k}" for k in updates)
         conn.execute(
-            sa.text(f"UPDATE payments SET {set_clause} WHERE id = :id"),
+            sa.text(f"UPDATE payments SET {set_clause} WHERE id = :id"),  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- columnas de una tupla fija; valores como parámetros
             {"id": row.id, **updates},
         )
 
