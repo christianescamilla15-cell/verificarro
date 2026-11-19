@@ -16,9 +16,19 @@ prueba.
 
 from __future__ import annotations
 
-import pytest
+import os
 
-from app.rate_limit import limiter
+# Las pruebas que levantan la app (TestClient como context manager) corren
+# el lifespan, que dispara `playwright install chromium` si no encuentra el
+# navegador. En CI eso descargaba ~150 MB y dejaba Chromium en el HOME del
+# runner, lo que cambiaba el resultado de test_playwright_bootstrap.py
+# (CI rojo desde mayo de 2026). Las pruebas no tocan la red: el auto-install
+# se prueba con mocks en test_playwright_bootstrap.py.
+os.environ["PLAYWRIGHT_AUTO_INSTALL"] = "false"
+
+import pytest  # noqa: E402
+
+from app.rate_limit import limiter  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
