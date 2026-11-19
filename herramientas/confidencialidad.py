@@ -20,8 +20,11 @@ LOCAL = Path.home() / '.config' / 'confidencial' / 'terminos.txt'
 
 
 def reglas() -> list[re.Pattern]:
-    texto = os.environ.get('CONFIDENCIAL_TERMINOS') or (LOCAL.read_text(encoding='utf-8') if LOCAL.exists() else '')
-    return [re.compile(l.strip(), re.IGNORECASE) for l in texto.splitlines() if l.strip() and not l.startswith('#')]
+    texto = os.environ.get('CONFIDENCIAL_TERMINOS') or ''
+    if not texto and LOCAL.exists():
+        texto = LOCAL.read_text(encoding='utf-8')
+    lineas = [linea.strip() for linea in texto.splitlines()]
+    return [re.compile(linea, re.IGNORECASE) for linea in lineas if linea and not linea.startswith('#')]
 
 
 def archivos() -> list[str]:
@@ -32,7 +35,8 @@ def archivos() -> list[str]:
 def main() -> int:
     rs = reglas()
     if not rs:
-        print('confidencialidad: SIN LISTA de términos (secreto CONFIDENCIAL_TERMINOS o ~/.config/confidencial/terminos.txt) → no medible')
+        print('confidencialidad: SIN LISTA de términos '
+              '(secreto CONFIDENCIAL_TERMINOS o ~/.config/confidencial/terminos.txt) → no medible')
         return 2
     hallazgos, revisados = [], 0
     for ruta in archivos():
@@ -48,7 +52,8 @@ def main() -> int:
             for k, r in enumerate(rs, 1):
                 if r.search(linea):
                     hallazgos.append(f'{ruta}:{n} · regla #{k}')
-    print(f'confidencialidad: {revisados} archivos revisados con {len(rs)} reglas · {len(hallazgos)} hallazgos')
+    print(f'confidencialidad: {revisados} archivos revisados con {len(rs)} reglas · '
+          f'{len(hallazgos)} hallazgos')
     if revisados == 0:
         print('confidencialidad: no se revisó ningún archivo → no medible')
         return 2

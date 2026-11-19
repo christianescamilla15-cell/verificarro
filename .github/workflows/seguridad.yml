@@ -71,15 +71,16 @@ jobs:
       image: semgrep/semgrep:1.186.0@sha256:6e1b04340e60e910fbb4ddbf3c857ab0918f064417ad5ac530014ccb3cf8c8f1
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      # verificar_reportes.py (copia tal cual de la plantilla) lee con xml.etree el junit que genera pytest
-      # en el mismo job: entrada propia, no de terceros. Se excluye sólo ese archivo, no la regla.
       - run: >-
           semgrep scan --config p/default --error
-          --exclude herramientas/verificar_reportes.py
           --sarif -o semgrep.sarif --json-output=semgrep.json
       - name: probar que analizó archivos
         if: always()
         run: python3 herramientas/verificar_reportes.py semgrep semgrep.json
+      # lo suprimido en el código (nosemgrep con su motivo) no se sube: GitHub lo contaría como alerta abierta
+      - name: depurar SARIF
+        if: always()
+        run: python3 herramientas/verificar_reportes.py depurar-sarif semgrep.sarif
       - uses: github/codeql-action/upload-sarif@9418214df1f2c4b8128c770156c409013b07d6b9 # v3.39.3
         if: always()
         with:

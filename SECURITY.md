@@ -50,6 +50,6 @@ Toda excepción queda versionada, con motivo, y se revisa; nunca se apaga una re
    `# nosemgrep: <id-de-la-regla> -- motivo`. Hoy hay 9, revisados el 2026-11-19 (SQL armado con literales
    y valores parametrizados, un log que no imprime el token, un origen de `postMessage` validado en otra
    función, un `<link rel="canonical">`).
-3. **Archivo excluido de un escáner** → sólo con comentario en el flujo. Hoy: `herramientas/verificar_reportes.py`
+3. **Archivo excluido de un escáner** → sólo con comentario en el flujo. Hoy: ninguno (`verificar_reportes.py` ya no usa un parser de XML)
    en Semgrep (lee con `xml.etree` el junit que genera el mismo job).
 4. Quien agrega la excepción la justifica en el PR; el dueño del repo (CODEOWNERS) la aprueba.
