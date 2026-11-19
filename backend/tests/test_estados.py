@@ -248,6 +248,31 @@ def test_webhook_paid_to_refunded_is_accepted(client, db_factory) -> None:
     gen.assert_not_called()
 
 
+@pytest.mark.parametrize("monto", [1.0, 48.98, 99.0])
+def test_webhook_amount_mismatch_does_not_mark_paid(client, db_factory, monto) -> None:
+    """M-3: si MP reporta un monto distinto al cobrado (tolerancia 0.01), alguien
+    pagó una preferencia más barata con nuestro external_reference: no se
+    acredita ni se desbloquea el reporte."""
+    pid = _seed(db_factory, f"monto-{monto}", P.PENDING)
+
+    res, gen, unlock = _payment_webhook(client, f"monto-{monto}", "approved", amount=monto)
+
+    assert res.json()["ignored"] == "amount-mismatch"
+    assert _status(db_factory, pid) == P.PENDING
+    gen.assert_not_called()
+    unlock.assert_not_called()
+
+
+def test_webhook_amount_within_tolerance_is_paid(client, db_factory) -> None:
+    pid = _seed(db_factory, "monto-ok", P.PENDING)
+
+    res, gen, _ = _payment_webhook(client, "monto-ok", "approved", amount=49.005)
+
+    assert res.json()["status"] == "paid"
+    assert _status(db_factory, pid) == P.PAID
+    gen.assert_called_once_with(pid)
+
+
 def _preapproval_webhook(client, ref: str, mp_status: str):
     info = MpPreapprovalInfo(
         preapproval_id=f"preapp-{ref}",
