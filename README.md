@@ -1,5 +1,9 @@
 # Verificarro
 
+[![ci](https://github.com/christianescamilla15-cell/verificarro/actions/workflows/ci.yml/badge.svg)](https://github.com/christianescamilla15-cell/verificarro/actions/workflows/ci.yml)
+[![seguridad](https://github.com/christianescamilla15-cell/verificarro/actions/workflows/seguridad.yml/badge.svg)](https://github.com/christianescamilla15-cell/verificarro/actions/workflows/seguridad.yml)
+[![licencia: MIT](https://img.shields.io/badge/licencia-MIT-blue.svg)](LICENSE)
+
 > Verificador de auto usado para Marketplace MX. Pega el anuncio o
 > escanea la placa con tu cámara → reporte en 60s con score 0-100,
 > REPUVE oficial, precio justo de mercado, análisis de fotos con IA,
@@ -19,6 +23,16 @@
 - **Hosting**: Render (backend) + Vercel (frontend)
 - **Observability**: Sentry + UptimeRobot + Vercel Analytics
 
+## Arquitectura
+
+Front React (Vercel) → API FastAPI (Render, Docker) → PostgreSQL, con consultas a REPUVE, NHTSA vPIC, SAT,
+marketplaces y visión de Claude; extensión de Chrome y sidecar `scraper-mx` como rutas alternas a REPUVE.
+
+- C4 (contexto, contenedores, componentes) y estados: [`docs/arquitectura/README.md`](docs/arquitectura/README.md)
+- Decisiones: [`docs/adr/`](docs/adr/) — scan-first con preview gratuito, REPUVE con degradación en capas,
+  pruebas herméticas
+- Reglas de negocio y la prueba que cubre cada una: [`docs/reglas.md`](docs/reglas.md)
+
 ## Quick start (development)
 
 ### Pre-requisitos
@@ -32,14 +46,14 @@
 
 ```bash
 cd backend
-cp .env.example .env
+cp env.example .env
 # Editar .env con tus credenciales (al menos ANTHROPIC_API_KEY y MP_ACCESS_TOKEN TEST)
 
 python -m venv .venv
 .venv/Scripts/activate    # Windows
 # source .venv/bin/activate  # Mac/Linux
 
-pip install -r requirements.txt
+pip install -r requirements.txt -r requirements-dev.txt
 alembic upgrade head
 
 uvicorn app.main:app --reload --port 3009
@@ -50,7 +64,7 @@ uvicorn app.main:app --reload --port 3009
 
 ```bash
 cd frontend
-cp .env.example .env.local
+cp env.example .env.local
 npm install
 npm run dev
 # → http://localhost:5173
@@ -64,23 +78,35 @@ docker compose up -d
 # Frontend correr aparte con `cd frontend && npm run dev`
 ```
 
-## Tests
+## Pruebas
 
 ```bash
-# Backend (~491 tests, ~45s)
-cd backend && .venv/Scripts/python.exe -m pytest --tb=line -q
+# Backend: 723 pruebas + 2 en vivo (omitidas salvo RUN_LIVE_REPUVE=1 / RUN_LIVE_ML=1), ~30 s, sin red
+cd backend && python -m pytest -q --cov=app
 
-# Frontend (no tests JS configurados aún — vitest pendiente)
-cd frontend && npx vite build  # solo build smoke
+# Frontend: vitest (46 pruebas) + build
+cd frontend && npm run test:run && npm run build
 ```
+
+La compuerta no es el % de cobertura (≈71 %) sino **una prueba por regla de negocio**: VIN e ISO 3779,
+consultas a REPUVE/SAT/NHTSA, puntaje, máquinas de estado de pago y reporte (incluidas las transiciones
+inválidas). La tabla vive en [`docs/reglas.md`](docs/reglas.md) y una prueba verifica que cada referencia
+exista. Las pruebas no descargan navegadores ni salen a internet ([ADR 0004](docs/adr/0004-pruebas-hermeticas-sin-navegador.md)).
 
 ## Deploy
 
 - **Backend**: auto-deploy de Render en cada push a `master`
 - **Frontend**: manual `cd frontend && vercel --prod`
 
-CI/CD GitHub Actions corre `pytest` + `vite build` en cada PR + push a master.
-Branch protection en `master` requiere ambos checks verde antes de merge.
+CI/CD GitHub Actions corre `ci` (pytest + vitest + build) y `seguridad` en cada PR y push a `master`.
+Checks a marcar como requeridos al proteger `master`: los jobs de `ci.yml` y `seguridad.yml`.
+Operación, prueba de humo (`herramientas/humo.sh`) y reversa: [`RUNBOOK.md`](RUNBOOK.md).
+
+## Seguridad
+
+CodeQL, Semgrep, Trivy (dependencias y Dockerfiles), gitleaks, SBOM y filtro de confidencialidad en cada
+cambio; Dependabot semanal. Webhooks con HMAC y máquina de estados, PII cifrada, límites por IP y anti-SSRF.
+Cómo reportar una vulnerabilidad y cómo se gestionan las excepciones: [`SECURITY.md`](SECURITY.md).
 
 ## Documentación interna
 
@@ -97,6 +123,6 @@ Para Christian + agentes Claude Code trabajando en el proyecto:
 - [/privacidad](https://verificarro.mx/privacidad) — Aviso de Privacidad LFPDPPP
 - [/terminos](https://verificarro.mx/terminos) — Términos y Condiciones
 
-## License
+## Licencia
 
-Propietario · Christian Hernández Escamilla · 2026
+[MIT](LICENSE) · Christian Hernández Escamilla · 2026
