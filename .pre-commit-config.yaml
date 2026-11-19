@@ -1,0 +1,12 @@
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks
+  - repo: local
+    hooks:
+      - id: confidencialidad
+        name: confidencialidad (sin datos de clientes)
+        entry: python3 herramientas/confidencialidad.py
+        language: system
+        pass_filenames: false
