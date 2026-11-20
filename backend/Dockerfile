@@ -21,7 +21,7 @@
 # Build: docker build -t verificarro-backend .
 # Run:   docker run -p 3009:3009 --env-file .env verificarro-backend
 
-FROM mcr.microsoft.com/playwright/python:v1.48.0-noble AS runtime
+FROM mcr.microsoft.com/playwright/python:v1.65.2-noble AS runtime
 
 WORKDIR /app
 
