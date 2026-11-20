@@ -96,3 +96,43 @@ jobs:
             echo "::error::El bundle JS de entrada excede 1 MB"
             exit 1
           fi
+
+  # La imagen de producción es la que despliega Render (runtime: docker). Sin este job el CI probaba en 3.12
+  # mientras la imagen traía Python 3.10: las pruebas pasaban en verde y producción no podía ni instalar.
+  imagen:
+    name: imagen de producción (construcción y arranque contra Postgres)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16@sha256:3950ad7c3148ca2175ef1b6c36c9efbf78957ae8fbe8b3a5d7c35af50500382f
+        env:
+          POSTGRES_USER: verificarro
+          POSTGRES_PASSWORD: solo-para-ci
+          POSTGRES_DB: verificarro
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U verificarro" --health-interval 5s --health-timeout 5s --health-retries 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: construir la imagen (el mismo Dockerfile que usa Render)
+        run: docker build -t verificarro-backend:ci backend
+      - name: el Python de la imagen es el mismo que prueba el CI
+        run: >-
+          docker run --rm --entrypoint python3 verificarro-backend:ci
+          -c "import sys; v = sys.version_info[:2]; print('Python de la imagen:', sys.version);
+          assert v == (3, 12), f'la imagen trae {v}, el CI prueba 3.12'"
+      - name: arrancar (migraciones + uvicorn) y esperar /health
+        run: |
+          docker run -d --name api --network host \
+            -e DATABASE_URL=postgresql://verificarro:solo-para-ci@localhost:5432/verificarro \
+            verificarro-backend:ci
+          for i in $(seq 1 90); do
+            if curl -fsS http://localhost:3009/health | grep -q '"status":"ok"'; then
+              echo "la imagen arrancó y /health respondió ok en ~$((i * 2)) s"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::la imagen no respondió /health en 180 s"
+          docker logs api | tail -80
+          exit 1
