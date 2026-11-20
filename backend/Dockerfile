@@ -1,7 +1,8 @@
 # Verificarro backend Dockerfile
 #
-# Base: imagen oficial de Microsoft Playwright para Python. Trae:
-# - Python 3.12
+# Base: imagen oficial de Microsoft Playwright para Python (Ubuntu 24.04 «noble»). Trae:
+# - Python 3.12 (la variante «jammy» trae 3.10: con ella el CI —que prueba en 3.12— pasaba en verde y
+#   producción no podía instalar dependencias que exigen 3.11+. El job «imagen» del CI ahora lo detecta.)
 # - Chromium + Firefox + WebKit pre-instalados (~600 MB total)
 # - Todas las dependencias linux que los browsers necesitan (libnss3,
 #   libxss1, libasound2, etc. — 30+ libs que normalmente requieren
@@ -20,7 +21,7 @@
 # Build: docker build -t verificarro-backend .
 # Run:   docker run -p 3009:3009 --env-file .env verificarro-backend
 
-FROM mcr.microsoft.com/playwright/python:v1.48.0-jammy AS runtime
+FROM mcr.microsoft.com/playwright/python:v1.48.0-noble AS runtime
 
 WORKDIR /app
 

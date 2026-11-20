@@ -1,8 +1,9 @@
 """Tabla `payments` — registro de cada intento de pago vía Mercado Pago.
 
-Flow de estados:
+Flow de estados (pago único; tabla completa en `PAYMENT_TRANSITIONS`):
   pending → paid (webhook MP confirma) → refunded (raro)
-  pending → failed (timeout, cancelación)
+  pending → failed (timeout, cancelación) → pending | paid (reintento)
+  paid nunca regresa a pending/failed; refunded es terminal.
 
 `mp_preference_id` es el ID de la Preference que crea el checkout.
 `mp_payment_id` se popula cuando el webhook llega con el pago real.
@@ -26,6 +27,49 @@ class PaymentStatus(str, enum.Enum):
     PAID = "paid"
     FAILED = "failed"
     REFUNDED = "refunded"
+
+
+# Transiciones válidas de un pago único (webhook topic=payment).
+#
+# Un mismo `external_reference` puede recibir varios pagos de MP (tarjeta
+# rechazada y reintento; ficha OXXO pendiente y luego tarjeta) y MP no
+# garantiza el orden de los webhooks. De ahí las reglas:
+# - failed → pending | paid: reintento legítimo del comprador.
+# - paid → pending | failed: NO. Un webhook atrasado de otro intento no puede
+#   desmarcar un pago acreditado cuyo reporte ya se desbloqueó (y al volver a
+#   «paid» se re-encolaría el pipeline, cobrando otra vez el análisis IA).
+# - refunded: terminal.
+PAYMENT_TRANSITIONS: dict[PaymentStatus, frozenset[PaymentStatus]] = {
+    PaymentStatus.PENDING: frozenset(
+        {PaymentStatus.PAID, PaymentStatus.FAILED, PaymentStatus.REFUNDED}
+    ),
+    PaymentStatus.FAILED: frozenset({PaymentStatus.PENDING, PaymentStatus.PAID}),
+    PaymentStatus.PAID: frozenset({PaymentStatus.REFUNDED}),
+    PaymentStatus.REFUNDED: frozenset(),
+}
+
+# Suscripciones (webhook topic=preapproval): authorized → PAID,
+# paused/pending → PENDING, cancelled → FAILED. La cancelación de un
+# preapproval en MP es definitiva, así que FAILED es terminal; una pausa
+# (PAID → PENDING) sí puede reanudarse.
+SUBSCRIPTION_TRANSITIONS: dict[PaymentStatus, frozenset[PaymentStatus]] = {
+    PaymentStatus.PENDING: frozenset({PaymentStatus.PAID, PaymentStatus.FAILED}),
+    PaymentStatus.PAID: frozenset({PaymentStatus.PENDING, PaymentStatus.FAILED}),
+    PaymentStatus.FAILED: frozenset(),
+    PaymentStatus.REFUNDED: frozenset(),
+}
+
+
+def can_transition(
+    current: PaymentStatus, new: PaymentStatus, *, subscription: bool = False,
+) -> bool:
+    """True si el webhook puede mover el pago de `current` a `new`.
+
+    El mismo estado no es transición (los webhooks duplicados se atienden
+    antes como no-op idempotente).
+    """
+    table = SUBSCRIPTION_TRANSITIONS if subscription else PAYMENT_TRANSITIONS
+    return new in table[current]
 
 
 class Payment(Base, TimestampMixin):

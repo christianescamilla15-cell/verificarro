@@ -1140,7 +1140,7 @@ async def _maybe_solve_recaptcha(page: "Page") -> bool:
         )
         log.warning("reCaptcha injection: %s", injection_log)
     except Exception as exc:  # noqa: BLE001
-        log.warning("Failed injecting reCaptcha token: %s", exc)
+        log.warning("Failed injecting reCaptcha token: %s", exc)  # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure -- registra el error, no el token
         return False
 
     # Da tiempo a que la JS de Google procese el callback antes del submit

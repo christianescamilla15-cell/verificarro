@@ -23,7 +23,7 @@ function originAllowed(origin) {
   return /^https:\/\/[a-z0-9-]+\.verificarro\.mx$/.test(origin);
 }
 
-window.addEventListener("message", (event) => {
+window.addEventListener("message", (event) => { // nosemgrep: javascript.browser.security.insufficient-postmessage-origin-validation.insufficient-postmessage-origin-validation -- origen validado abajo con originAllowed() y event.source
   if (event.source !== window) return;
   if (!originAllowed(event.origin)) return;
   const data = event.data;

@@ -77,7 +77,7 @@ class Settings(BaseSettings):
     # Dos formatos soportados (mutuamente exclusivos):
     #
     #   1. URL embedida (legacy):
-    #      PROXY_URL=http://user:pass@host:port
+    #      PROXY_URL=http://<usuario>:<clave>@<host>:<puerto>
     #      ⚠ Si el password tiene caracteres especiales (+, /, @, :) hay
     #      que percent-encodearlos. Es frágil.
     #

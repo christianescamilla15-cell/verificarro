@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -40,36 +41,54 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 
-# Pinned a la versión de Playwright en requirements.txt. Si bumpeas
-# Playwright, actualizá este número (tests cubren la consistencia).
-_EXPECTED_CHROMIUM_BUILD = "chromium-1140"
+# Build de Chromium que trae la versión de Playwright fijada en
+# requirements.txt (playwright==1.52.0 → chromium-1169). Si subes
+# Playwright, actualiza este número: `test_expected_build_matches_installed_playwright`
+# lo compara contra el browsers.json del paquete instalado.
+_EXPECTED_CHROMIUM_BUILD = "chromium-1169"
+
+# Interruptor del auto-install. En pruebas se apaga (tests/conftest.py):
+# una prueba no debe descargar ~150 MB de navegador como efecto lateral
+# del lifespan, ni dejar un binario en el HOME que cambie el resultado
+# de otras pruebas.
+_AUTO_INSTALL_ENV = "PLAYWRIGHT_AUTO_INSTALL"
+
+# Nombre del directorio del binario según la versión de Playwright
+# (≤1.5x usa chrome-linux; las más nuevas, chrome-linux64).
+_CHROME_LINUX_DIRS = ("chrome-linux", "chrome-linux64")
 
 
 def _candidate_chromium_paths() -> list[Path]:
-    """Paths donde Playwright busca el binario de Chromium en Linux/Mac.
+    """Directorio donde Playwright buscará Chromium, con su misma regla.
 
-    Prioridad: PLAYWRIGHT_BROWSERS_PATH (custom) → ~/.cache/ms-playwright
-    (default Linux) → /ms-playwright (Docker official Playwright image).
+    Playwright resuelve UN solo directorio de navegadores:
+    - si `PLAYWRIGHT_BROWSERS_PATH` está definido, sólo ése (la imagen
+      oficial de Playwright lo define como `/ms-playwright`, y
+      `scraper-mx.Dockerfile` también);
+    - si no, `$XDG_CACHE_HOME/ms-playwright` o `~/.cache/ms-playwright`.
+
+    Antes se revisaban los tres a la vez; eso podía reportar «instalado»
+    por un binario que Playwright nunca va a usar y hacía que las pruebas
+    dependieran del HOME de la máquina (causa del CI rojo desde mayo).
+    El valor especial "0" (navegadores dentro del paquete) no se usa en
+    este proyecto y se trata como no definido.
     """
-    import os
+    custom = os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "").strip()
+    if custom and custom != "0":
+        return [Path(custom)]
 
-    paths: list[Path] = []
-    custom = os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
-    if custom:
-        paths.append(Path(custom))
-
-    home = os.environ.get("HOME") or os.path.expanduser("~")
-    paths.append(Path(home) / ".cache" / "ms-playwright")
-
-    # Imagen oficial de Playwright instala browsers acá
-    paths.append(Path("/ms-playwright"))
-
-    return paths
+    xdg = os.environ.get("XDG_CACHE_HOME", "").strip()
+    if xdg:
+        cache = Path(xdg)
+    else:
+        home = os.environ.get("HOME") or os.path.expanduser("~")
+        cache = Path(home) / ".cache"
+    return [cache / "ms-playwright"]
 
 
 def chromium_installed() -> bool:
-    """True si encontramos el binario chrome ejecutable en algún path
-    conocido de Playwright. False si no hay binario o no es ejecutable.
+    """True si encontramos el binario chrome ejecutable en el directorio
+    que Playwright va a usar. False si no hay binario.
     """
     for base in _candidate_chromium_paths():
         if not base.exists():
@@ -77,10 +96,16 @@ def chromium_installed() -> bool:
         for child in base.iterdir():
             if not child.is_dir() or not child.name.startswith("chromium-"):
                 continue
-            chrome = child / "chrome-linux" / "chrome"
-            if chrome.is_file():
-                return True
+            for linux_dir in _CHROME_LINUX_DIRS:
+                if (child / linux_dir / "chrome").is_file():
+                    return True
     return False
+
+
+def auto_install_enabled() -> bool:
+    """El auto-install está activo salvo `PLAYWRIGHT_AUTO_INSTALL=false|0|no`."""
+    valor = os.environ.get(_AUTO_INSTALL_ENV, "true").strip().lower()
+    return valor not in {"false", "0", "no", "off"}
 
 
 def install_chromium_sync() -> tuple[bool, str]:
@@ -122,6 +147,14 @@ async def ensure_chromium_installed() -> None:
             logger.info(
                 "Playwright Chromium presente (%s) — boot continuo",
                 _EXPECTED_CHROMIUM_BUILD,
+            )
+            return
+
+        if not auto_install_enabled():
+            logger.info(
+                "Playwright Chromium NO encontrado y %s=false — no se "
+                "instala (REPUVE degrada al flujo manual)",
+                _AUTO_INSTALL_ENV,
             )
             return
 

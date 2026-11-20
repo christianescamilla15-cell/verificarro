@@ -197,7 +197,11 @@ def test_scan_plate_captcha_returns_yellow_capped_preview(client) -> None:
     body = res.json()
     assert body["risk_level"] == "yellow"
     assert body["score"] == 50
-    assert "no se pudo consultar" in body["summary"]
+    # El texto cambió en bb015e0 (10-may: «captcha como paso manual, no
+    # como error»); la regla sigue: el resumen dice que REPUVE quedó
+    # PENDIENTE y nunca afirma que no hay reporte de robo.
+    assert "Verificación REPUVE pendiente" in body["summary"]
+    assert "no muestra reporte de robo" not in body["summary"]
     assert body["report_id"]
 
 

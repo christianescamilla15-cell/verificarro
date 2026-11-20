@@ -30,6 +30,7 @@ from sqlalchemy import select
 from app.api.auth import get_optional_user
 from app.config import Settings, get_settings
 from app.db.models import Payment, PaymentStatus, ReportRecord, ReportStatus, User
+from app.db.models.payment import can_transition
 from app.db.session import SessionDep
 from app.rate_limit import limiter
 from app.services.email import mask_email
@@ -410,6 +411,16 @@ async def webhook(
     if new_status == payment.status:
         return {"ok": True, "ignored": "idempotent-duplicate"}
 
+    # Máquina de estados: un webhook atrasado (p. ej. la ficha OXXO
+    # pendiente de un intento previo) no puede regresar un pago acreditado.
+    # Respondemos 200 para que MP no reintente.
+    if not can_transition(payment.status, new_status):
+        logger.warning(
+            "Payment %s: transición inválida %s → %s (mp_payment=%s) ignorada",
+            payment.id, payment.status.value, new_status.value, info.payment_id,
+        )
+        return {"ok": True, "ignored": "invalid-transition"}
+
     # M-3: amount verification antes de aceptar PAID. Si el `transaction_amount`
     # que MP reporta NO coincide con lo que cobramos en checkout, alguien creó
     # una preferencia barata con nuestro `external_reference` para desbloquear
@@ -499,6 +510,13 @@ async def _handle_preapproval_webhook(
     new_status = _map_preapproval_status(info.status)
     if new_status == payment.status:
         return {"ok": True, "ignored": "idempotent-duplicate"}
+
+    if not can_transition(payment.status, new_status, subscription=True):
+        logger.warning(
+            "Suscripción %s: transición inválida %s → %s ignorada",
+            payment.id, payment.status.value, new_status.value,
+        )
+        return {"ok": True, "ignored": "invalid-transition"}
 
     payment.status = new_status
     if new_status == PaymentStatus.PAID:

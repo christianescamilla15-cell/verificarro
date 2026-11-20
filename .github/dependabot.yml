@@ -1,0 +1,24 @@
+version: 2
+updates:
+  # Backend (FastAPI): requirements.txt y requirements-dev.txt
+  - package-ecosystem: pip
+    directory: /backend
+    schedule: { interval: weekly }
+    cooldown: { default-days: 7 }   # no proponer versiones con menos de una semana publicadas
+    open-pull-requests-limit: 5
+  # Front (React + Vite)
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule: { interval: weekly }
+    cooldown: { default-days: 7 }
+    open-pull-requests-limit: 5
+  # Imágenes base de los Dockerfiles del backend y del sidecar
+  - package-ecosystem: docker
+    directory: /backend
+    schedule: { interval: weekly }
+    cooldown: { default-days: 7 }
+  # Acciones ancladas por SHA en .github/workflows
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }
+    cooldown: { default-days: 7 }

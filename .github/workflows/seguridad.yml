@@ -1,0 +1,140 @@
+# Seguridad (N04, N05, N06, N12): cada paso debe probar que analizó algo, no sólo que terminó.
+# Plantilla común del portafolio adaptada a Verificarro: CodeQL con python (backend/) y
+# javascript-typescript (frontend/ y extension/).
+#
+# Acciones ancladas por SHA (el tag va en el comentario; Dependabot los actualiza). El tag sin «v»
+# `aquasecurity/trivy-action@0.28.0` de la plantilla ya no existe en el repo de la acción (sólo quedan
+# los tags con «v»): se usa v0.36.0.
+name: seguridad
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  schedule:
+    - cron: '17 6 * * 1'   # lunes: también se revisa lo que no cambió (CVE nuevas)
+
+permissions:
+  contents: read
+
+jobs:
+  confidencialidad:
+    name: confidencialidad (sin datos de clientes)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.12'
+      # La lista de términos vive en el secreto del repo, nunca en el código; el reporte no imprime términos.
+      - run: python herramientas/confidencialidad.py
+        env:
+          CONFIDENCIAL_TERMINOS: ${{ secrets.CONFIDENCIAL_TERMINOS }}
+
+  secretos:
+    name: secretos (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0        # toda la historia: un secreto borrado sigue en Git
+      - uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  codeql:
+    name: SAST (CodeQL)
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        lenguaje: [python, javascript-typescript]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: github/codeql-action/init@9418214df1f2c4b8128c770156c409013b07d6b9 # v3.39.3
+        with:
+          languages: ${{ matrix.lenguaje }}
+          queries: security-and-quality
+      - uses: github/codeql-action/analyze@9418214df1f2c4b8128c770156c409013b07d6b9 # v3.39.3
+
+  semgrep:
+    name: SAST (Semgrep, bloqueante)
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+    container:
+      # Versión fija (la misma probada en local); el digest evita que una etiqueta reescrita cambie la imagen.
+      image: semgrep/semgrep:1.186.0@sha256:6e1b04340e60e910fbb4ddbf3c857ab0918f064417ad5ac530014ccb3cf8c8f1
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - run: >-
+          semgrep scan --config p/default --error
+          --sarif -o semgrep.sarif --json-output=semgrep.json
+      - name: probar que analizó archivos
+        if: always()
+        run: python3 herramientas/verificar_reportes.py semgrep semgrep.json
+      # lo suprimido en el código (nosemgrep con su motivo) no se sube: GitHub lo contaría como alerta abierta
+      - name: depurar SARIF
+        if: always()
+        run: python3 herramientas/verificar_reportes.py depurar-sarif semgrep.sarif
+      - uses: github/codeql-action/upload-sarif@9418214df1f2c4b8128c770156c409013b07d6b9 # v3.39.3
+        if: always()
+        with:
+          sarif_file: semgrep.sarif
+          category: semgrep
+
+  dependencias:
+    name: dependencias e IaC (Trivy, bloqueante en CRITICAL/HIGH con arreglo)
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: inventario (prueba de que hay qué analizar)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          format: json
+          output: trivy.json
+          list-all-pkgs: 'true'
+          exit-code: '0'
+      - run: python3 herramientas/verificar_reportes.py trivy trivy.json
+      - name: vulnerabilidades (bloqueante)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          severity: CRITICAL,HIGH
+          ignore-unfixed: 'true'
+          trivyignores: .trivyignore     # cada excepción con fecha de vencimiento y motivo
+          exit-code: '1'
+          format: sarif
+          output: trivy.sarif
+          # Sin esto, con format=sarif la acción descarta `severity` y bloquea con cualquier severidad.
+          limit-severities-for-sarif: 'true'
+      - uses: github/codeql-action/upload-sarif@9418214df1f2c4b8128c770156c409013b07d6b9 # v3.39.3
+        if: always()
+        with:
+          sarif_file: trivy.sarif
+          category: trivy
+      - name: configuración e IaC (Dockerfiles)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: config
+          severity: CRITICAL,HIGH
+          exit-code: '1'
+
+  sbom:
+    name: SBOM (syft)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          format: spdx-json
+          output-file: sbom.spdx.json
+      - run: python3 herramientas/verificar_reportes.py sbom sbom.spdx.json
