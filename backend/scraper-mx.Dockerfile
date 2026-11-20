@@ -31,7 +31,7 @@
 #     -H "Content-Type: application/json" \
 #     -d '{"plate":"PHC9604"}'
 
-FROM python:3.12-slim AS runtime
+FROM python:3.15-slim AS runtime
 
 # Path system-wide para que Chromium quede accesible para todos los
 # users (playwright_bootstrap también lo busca aquí en su lista de
