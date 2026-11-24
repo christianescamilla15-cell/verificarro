@@ -1,10 +1,14 @@
-fastapi==0.115.4
-uvicorn[standard]==0.32.0
-pydantic==2.9.2
-pydantic-settings==2.6.1
-python-dotenv==1.2.2
-httpx==0.27.2
+fastapi==0.162.7
+uvicorn[standard]==0.54.0
+pydantic==2.14.3
+pydantic-settings==2.16.3
+python-dotenv==1.2.4
+httpx==0.28.1
 anthropic>=2.8.0,<3.0.0
+# Familia de navegadores (playwright, rebrowser-playwright, patchright, camoufox): comparten binarios y
+# versión mayor.menor, así que se suben juntas y en su propio PR de Dependabot (grupo «navegadores»).
+# 24-nov-2026 se quedan en 1.52 / camoufox 0.4.11: camoufox 0.5.9 exige playwright<1.63, rebrowser no publicó
+# 1.62 ni 1.63 y patchright/rebrowser no pasan de 1.64. Revisar cuando camoufox admita una playwright más nueva.
 playwright==1.52.0
 # rebrowser-playwright: drop-in replacement que corrige los leaks
 # detection de bot (runtimeEnableLeak, pwInitScripts). Activar via
@@ -28,26 +32,26 @@ patchright==1.52.5
 # Browser binary se baja con `python -m camoufox fetch` (~530 MB Firefox
 # 135 custom). [geoip] extra agrega base GeoIP para auto-fingerprint.
 camoufox[geoip]==0.4.11
-beautifulsoup4==4.12.3
-lxml==6.1.0
+beautifulsoup4==4.15.0
+lxml==6.1.3
 reportlab==4.2.5
 Pillow==13.0.0
 imagehash==4.3.2
-python-multipart==0.0.31
-sqlalchemy[asyncio]==2.0.36
-asyncpg==0.30.0
-aiosqlite==0.20.0
-alembic==1.14.0
+python-multipart==0.0.33
+sqlalchemy[asyncio]==2.1.8
+asyncpg==0.32.0
+aiosqlite==0.22.1
+alembic==1.20.1
 mercadopago==2.3.0
-pyjwt==2.15.0
-email-validator==2.2.0
-slowapi==0.1.9
-sentry-sdk[fastapi]==2.18.0
-cryptography==50.0.0
+pyjwt==2.15.1
+email-validator==2.3.0
+slowapi==0.1.10
+sentry-sdk[fastapi]==2.75.0
+cryptography==50.0.2
 # --- Audio captcha solver (opcional, gated por CAPTCHA_AUDIO_ENABLED) ---
 # Whisper local para transcribir el audio challenge oficial de reCAPTCHA
 # v2. Lazy-imported en app/services/audio_captcha_solver.py — si la
 # feature flag está off, este paquete no se importa nunca y no impacta
 # RAM en runtime. Install adiciona ~80 MB (ctranslate2 + tokenizers).
-faster-whisper==1.0.3
+faster-whisper==1.2.1
 

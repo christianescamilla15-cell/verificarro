@@ -6,6 +6,10 @@ updates:
     schedule: { interval: weekly }
     cooldown: { default-days: 7 }   # no proponer versiones con menos de una semana publicadas
     groups:                       # menores y parches juntos: un PR por semana; las mayores van solas
+      # La familia de navegadores va junta y aparte (ver backend/requirements.txt): el 24-nov-2026 camoufox
+      # exigía playwright<1.63 y su conflicto hacía fallar la instalación de todo el grupo de menores.
+      navegadores:
+        patterns: [playwright, rebrowser-playwright, patchright, camoufox]
       pip-backend-menores:
         update-types: [minor, patch]
     open-pull-requests-limit: 5
