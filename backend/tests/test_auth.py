@@ -124,7 +124,7 @@ def test_request_link_creates_user_and_sends_email(client, db_factory) -> None:
             )
             return r.scalar_one()
 
-    user = asyncio.get_event_loop().run_until_complete(_check())
+    user = asyncio.run(_check())
     assert user.magic_link_hash is not None
     assert user.magic_link_expires_at is not None
 
@@ -147,7 +147,7 @@ def test_request_link_idempotent_for_existing_user(client, db_factory) -> None:
             )
             return len(r.scalars().all())
 
-    count = asyncio.get_event_loop().run_until_complete(_count())
+    count = asyncio.run(_count())
     assert count == 1  # mismo user, no duplicado
 
 
@@ -254,7 +254,7 @@ def test_verify_links_orphan_payments_by_email(client, db_factory) -> None:
             ))
             await s.commit()
 
-    asyncio.get_event_loop().run_until_complete(_seed())
+    asyncio.run(_seed())
 
     token = _request_link_and_capture(client, email_target)
     res = client.post(
@@ -274,7 +274,7 @@ def test_verify_links_orphan_payments_by_email(client, db_factory) -> None:
             )
             return len(mine.scalars().all()), len(others.scalars().all())
 
-    linked, still_orphan = asyncio.get_event_loop().run_until_complete(_check())
+    linked, still_orphan = asyncio.run(_check())
     assert linked == 2  # los 2 de email_target
     assert still_orphan == 1  # el de email_other queda huérfano
 
@@ -319,7 +319,7 @@ def test_verify_atomic_consume_returns_401_when_hash_already_cleared(
             user.magic_link_expires_at = None
             await s.commit()
 
-    asyncio.get_event_loop().run_until_complete(_wipe_hash())
+    asyncio.run(_wipe_hash())
 
     # Ahora intentamos verify — el SELECT inicial ve hash=NULL así que
     # cae en la rama "or not user.magic_link_hash" → 401 directo.
@@ -349,7 +349,7 @@ def test_verify_expired_token_returns_401(client, db_factory) -> None:
             user.magic_link_expires_at = datetime.now(UTC) - timedelta(minutes=1)
             await s.commit()
 
-    asyncio.get_event_loop().run_until_complete(_expire())
+    asyncio.run(_expire())
 
     res = client.post(
         "/api/auth/verify",

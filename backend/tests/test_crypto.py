@@ -129,7 +129,7 @@ def test_payment_persists_pii_encrypted_in_db(db_factory) -> None:
             assert "alice@example.com" not in row.payer_email
             assert "ABC123D" not in row.plate
 
-    asyncio.get_event_loop().run_until_complete(_test())
+    asyncio.run(_test())
 
 
 def test_payment_null_pii_persists_as_null(db_factory) -> None:
@@ -161,4 +161,4 @@ def test_payment_null_pii_persists_as_null(db_factory) -> None:
             assert fetched.plate is None
             assert fetched.vin is None
 
-    asyncio.get_event_loop().run_until_complete(_test())
+    asyncio.run(_test())

@@ -151,7 +151,7 @@ def _seed_payment(db_factory, external_ref: str = "webhook-ref-1") -> str:
             await s.commit()
             return p.id
 
-    return asyncio.get_event_loop().run_until_complete(_seed())
+    return asyncio.run(_seed())
 
 
 def test_webhook_payment_approved_updates_status(client, db_factory) -> None:
@@ -182,7 +182,7 @@ def test_webhook_payment_approved_updates_status(client, db_factory) -> None:
             )
             return r.scalar_one()
 
-    p = asyncio.get_event_loop().run_until_complete(_check())
+    p = asyncio.run(_check())
     assert p.status == PaymentStatus.PAID
     assert p.mp_payment_id == "mp-pay-999"
     assert p.paid_at is not None

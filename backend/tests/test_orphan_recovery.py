@@ -67,7 +67,7 @@ def _seed_payment(
             await s.commit()
             return p.id
 
-    return asyncio.get_event_loop().run_until_complete(_seed())
+    return asyncio.run(_seed())
 
 
 def test_recover_finds_orphan_paid_payment_without_report(db_factory) -> None:
@@ -89,7 +89,7 @@ def test_recover_finds_orphan_paid_payment_without_report(db_factory) -> None:
     ) as mock_generate:
         mock_unlock.return_value = None
         mock_generate.return_value = None
-        recovered = asyncio.get_event_loop().run_until_complete(
+        recovered = asyncio.run(
             recover_orphan_paid_payments()
         )
 
@@ -109,7 +109,7 @@ def test_recover_skips_payment_with_existing_report(db_factory) -> None:
         has_report=True,  # ya tiene report
     )
 
-    recovered = asyncio.get_event_loop().run_until_complete(
+    recovered = asyncio.run(
         recover_orphan_paid_payments()
     )
     assert payment_id not in recovered
@@ -127,7 +127,7 @@ def test_recover_skips_payment_outside_window(db_factory) -> None:
         has_report=False,
     )
 
-    recovered = asyncio.get_event_loop().run_until_complete(
+    recovered = asyncio.run(
         recover_orphan_paid_payments()
     )
     assert payment_id not in recovered
@@ -143,7 +143,7 @@ def test_recover_skips_pending_payments(db_factory) -> None:
         paid_at=None,
     )
 
-    recovered = asyncio.get_event_loop().run_until_complete(
+    recovered = asyncio.run(
         recover_orphan_paid_payments()
     )
     assert payment_id not in recovered
@@ -162,7 +162,7 @@ def test_recover_skips_subscription_tiers(db_factory) -> None:
         has_report=False,
     )
 
-    recovered = asyncio.get_event_loop().run_until_complete(
+    recovered = asyncio.run(
         recover_orphan_paid_payments()
     )
     assert payment_id not in recovered
@@ -172,7 +172,7 @@ def test_recover_idempotent_when_no_orphans(db_factory) -> None:
     """DB vacía o sin orphans → devuelve [] sin error."""
     from app.services.report_generator import recover_orphan_paid_payments
 
-    recovered = asyncio.get_event_loop().run_until_complete(
+    recovered = asyncio.run(
         recover_orphan_paid_payments()
     )
     assert recovered == []
