@@ -34,7 +34,7 @@ C4Container
   title Contenedores · Verificarro
   Person(comprador, "Comprador")
   System_Boundary(b, "Verificarro") {
-    Container(web, "Front", "React 18 + Vite 5 · Vercel", "Escáner de placa/VIN, preview, paywall, reporte, tablero")
+    Container(web, "Front", "React 19 + Vite 8 · Vercel", "Escáner de placa/VIN, preview, paywall, reporte, tablero")
     Container(ext, "Extensión de Chrome", "Manifest V3", "Consulta REPUVE desde el navegador del usuario y entrega el HTML")
     Container(api, "API", "Python 3.12 · FastAPI · Render (Docker)", "Pipeline de análisis, pagos, auth por enlace mágico")
     Container(sidecar, "scraper-mx", "FastAPI · Docker en host con IP de México", "Sólo POST /scrape/repuve con token Bearer")

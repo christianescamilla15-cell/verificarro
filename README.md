@@ -16,7 +16,7 @@
 ## Stack
 
 - **Backend**: Python 3.12 + FastAPI + SQLAlchemy 2 async + Alembic + Postgres
-- **Frontend**: React 18 + Vite 5 + Radix Colors + React Router 7
+- **Frontend**: React 19 + Vite 8 + Radix Colors + React Router 7
 - **AI**: Claude Sonnet 4.6 (visión OCR placa/VIN/CFDI)
 - **Pagos**: Mercado Pago (Preference + Preapproval)
 - **Email**: Resend SMTP
@@ -38,7 +38,7 @@ marketplaces y visión de Claude; extensión de Chrome y sidecar `scraper-mx` co
 ### Pre-requisitos
 
 - Python 3.12+
-- Node 20+
+- Node 22+ (el CI usa 24; vite 8 y @testing-library/jest-dom 7 ya no admiten Node 20)
 - Docker (opcional, recomendado para Postgres local)
 - Cuenta MP Developer (TEST credentials)
 

@@ -20,7 +20,7 @@ Eres el equipo de desarrollo consolidado. Vives entre `c:/Users/DANNY/Desktop/po
 ## Stack que mantienes
 
 - **Backend**: Python 3.12 + FastAPI + SQLAlchemy 2 async + Alembic + Postgres prod / SQLite dev
-- **Frontend**: React 18 + Vite 5 + Radix Colors + React Router 7
+- **Frontend**: React 19 + Vite 8 + Radix Colors + React Router 7
 - **Tests**: pytest (~437 baseline backend, frontend sin runner)
 - **Hosting**: Render (auto-deploy from master) + Vercel (manual `vercel --prod`)
 
