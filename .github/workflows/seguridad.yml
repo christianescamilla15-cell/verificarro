@@ -38,7 +38,10 @@ jobs:
       # puede tocar manifiestos, candados y versiones; lo demás falla. Al fusionar, el push a main mide todo el árbol.
       - name: PR de Dependabot (sólo manifiestos y candados)
         if: github.event.pull_request.user.login == 'dependabot[bot]'
-        run: python herramientas/confidencialidad.py --solo-dependencias "origin/${{ github.base_ref }}"
+        # La rama base entra por env, no interpolada en el script (Semgrep: run-shell-injection).
+        env:
+          RAMA_BASE: ${{ github.base_ref }}
+        run: python herramientas/confidencialidad.py --solo-dependencias "origin/$RAMA_BASE"
 
   secretos:
     name: secretos (gitleaks)
