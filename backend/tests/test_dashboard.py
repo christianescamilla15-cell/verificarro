@@ -62,7 +62,7 @@ def _seed_user(db_factory, email: str = "dealer@example.com") -> tuple[str, str]
             await s.commit()
             return uid
 
-    user_id = asyncio.get_event_loop().run_until_complete(_create())
+    user_id = asyncio.run(_create())
     return user_id, create_session_token(user_id)
 
 
@@ -91,7 +91,7 @@ def _seed_reports(
                 s.add(rec)
             await s.commit()
 
-    asyncio.get_event_loop().run_until_complete(_ins())
+    asyncio.run(_ins())
 
 
 def _seed_payment(
@@ -116,7 +116,7 @@ def _seed_payment(
             s.add(p)
             await s.commit()
 
-    asyncio.get_event_loop().run_until_complete(_ins())
+    asyncio.run(_ins())
 
 
 # ---------------------------------------------------------------------------

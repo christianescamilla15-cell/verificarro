@@ -165,7 +165,7 @@ def test_scan_plate_manual_creates_preview_record(client, db_factory) -> None:
             r = await s.execute(select(ReportRecord))
             return r.scalar_one()
 
-    rec = asyncio.get_event_loop().run_until_complete(_check())
+    rec = asyncio.run(_check())
     assert rec.status == ReportStatus.PREVIEW
     assert rec.plate == "ABC123D"
 
@@ -358,7 +358,7 @@ def test_checkout_with_report_id_links_payment_and_snapshots_plate(
             ).scalar_one()
             return payment, report
 
-    payment, report = asyncio.get_event_loop().run_until_complete(_check())
+    payment, report = asyncio.run(_check())
     assert payment.plate == "ABC123D"
     assert report.payment_id == payment_id
     assert report.status == ReportStatus.PREVIEW
@@ -398,7 +398,7 @@ def test_checkout_with_already_unlocked_report_returns_409(
             await s.commit()
             return r.id
 
-    report_id = asyncio.get_event_loop().run_until_complete(_seed())
+    report_id = asyncio.run(_seed())
 
     with patch(
         "app.api.payments.create_preference", return_value=_fake_preference()
@@ -441,7 +441,7 @@ def test_payment_status_returns_report_status(client, db_factory) -> None:
             await s.commit()
             return payment.mp_external_reference, report.id, payment.id
 
-    ext_ref, report_id, payment_id = asyncio.get_event_loop().run_until_complete(_seed())
+    ext_ref, report_id, payment_id = asyncio.run(_seed())
 
     # MOD-005: el endpoint requiere ?token=X. Recomputamos con el helper.
     from app.api.payments import _make_polling_token

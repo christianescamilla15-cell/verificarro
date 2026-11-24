@@ -75,12 +75,12 @@ def test_fetch_photos_skips_unsafe_urls() -> None:
         "http://localhost:5432/",
         "file:///etc/passwd",
     ]
-    result = asyncio.get_event_loop().run_until_complete(fetch_photos(urls))
+    result = asyncio.run(fetch_photos(urls))
     assert result == [None, None, None]
     # Mantiene orden y largo
     assert len(result) == len(urls)
 
 
 def test_fetch_photos_empty_list_returns_empty() -> None:
-    result = asyncio.get_event_loop().run_until_complete(fetch_photos([]))
+    result = asyncio.run(fetch_photos([]))
     assert result == []

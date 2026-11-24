@@ -135,7 +135,7 @@ def test_subscribe_persists_payment_row(client, db_factory) -> None:
             )
             return r.scalar_one()
 
-    p = asyncio.get_event_loop().run_until_complete(_check())
+    p = asyncio.run(_check())
     assert p.tier == "search"
     assert p.status == PaymentStatus.PENDING
     assert p.amount_mxn == 199.0
@@ -196,7 +196,7 @@ def _seed_preapproval_payment(db_factory, ext_ref: str, tier: str = "search") ->
             await s.commit()
             return p.id
 
-    return asyncio.get_event_loop().run_until_complete(_seed())
+    return asyncio.run(_seed())
 
 
 def test_webhook_preapproval_authorized_marks_payment_paid(
@@ -233,7 +233,7 @@ def test_webhook_preapproval_authorized_marks_payment_paid(
             )
             return r.scalar_one()
 
-    p = asyncio.get_event_loop().run_until_complete(_check())
+    p = asyncio.run(_check())
     assert p.status == PaymentStatus.PAID
     assert p.paid_at is not None
 

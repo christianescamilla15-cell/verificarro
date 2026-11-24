@@ -28,7 +28,7 @@ Pago único $49 MXN básico / $99 MXN premium vía Mercado Pago (OXXO/SPEI/tarje
 
 ## Stack
 - Backend: Python 3.12 + FastAPI + Playwright + Anthropic SDK
-- Frontend: React 18 + Vite 5
+- Frontend: React 19 + Vite 8
 - Visión IA: Claude Sonnet 4.6 (`claude-sonnet-4-6`) para análisis de fotos
 - Scraping: Playwright (REPUVE público, ML Motors, Kavak/Seminuevos comparables)
 - Pagos: Mercado Pago (Phase 2)

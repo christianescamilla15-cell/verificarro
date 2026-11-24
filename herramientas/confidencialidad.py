@@ -7,6 +7,11 @@ Una expresión regular por línea, sin distinguir mayúsculas. El reporte NUNCA 
 archivo, línea y el número de la regla, porque los registros de un repo público son públicos.
 
 Sale con 1 si encuentra algo, con 2 si no hay lista o no revisó ningún archivo (no se aprueba por no mirar).
+
+`--solo-dependencias <base>` es el modo de los PR de Dependabot: GitHub no les pasa los secretos de Actions (y no
+debe: el paquete nuevo corre durante la instalación). Sin lista no se puede buscar términos, así que se comprueba
+lo que sí se puede: que el PR sólo toque manifiestos y candados de dependencias, versiones de acciones o imágenes.
+Cualquier otro archivo hace fallar el check; el árbol completo se vuelve a medir con la lista al fusionar en main.
 """
 from __future__ import annotations
 
@@ -32,7 +37,32 @@ def archivos() -> list[str]:
     return [a for a in salida.decode().split('\0') if a]
 
 
+# Lo único que un PR de dependencias puede tocar.
+DEPENDENCIAS = re.compile(
+    r'(^|/)(requirements[^/]*\.(txt|in)|constraints[^/]*\.txt|pyproject\.toml|poetry\.lock|uv\.lock|Pipfile(\.lock)?'
+    r'|package\.json|package-lock\.json|npm-shrinkwrap\.json|pnpm-lock\.yaml|yarn\.lock'
+    r'|Dockerfile[^/]*|docker-compose[^/]*\.ya?ml|go\.(mod|sum)|Cargo\.(toml|lock)|[^/]+\.csproj)$'
+    r'|^\.github/workflows/[^/]+\.ya?ml$')
+
+
+def solo_dependencias(base: str) -> int:
+    salida = subprocess.run(['git', 'diff', '--name-only', f'{base}...HEAD'],
+                            capture_output=True, check=True).stdout.decode()
+    cambiados = [a for a in salida.splitlines() if a]
+    fuera = [a for a in cambiados if not DEPENDENCIAS.search(a)]
+    print(f'confidencialidad (PR de dependencias): {len(cambiados)} archivos cambiados contra {base} · '
+          f'{len(fuera)} fuera de manifiestos/candados')
+    if not cambiados:
+        print('confidencialidad: el PR no cambia ningún archivo → no medible')
+        return 2
+    for a in fuera:
+        print('   no es de dependencias:', a)
+    return 1 if fuera else 0
+
+
 def main() -> int:
+    if len(sys.argv) == 3 and sys.argv[1] == '--solo-dependencias':
+        return solo_dependencias(sys.argv[2])
     rs = reglas()
     if not rs:
         print('confidencialidad: SIN LISTA de términos '
