@@ -15,13 +15,15 @@
 # vs ~120 MB del slim. Para Render Starter (512 MB RAM, no limit de
 # disco) es aceptable — el cold start solo agrega ~10s al pull.
 #
-# Versión pinned a Playwright 1.48 para matchear requirements.txt.
-# Si bumpeas Playwright, actualizá el tag aquí también.
+# La etiqueta de la imagen NO tiene que coincidir con la playwright de requirements.txt: la imagen aporta
+# Ubuntu 24.04, Python 3.12 y las librerías de sistema de los navegadores, y `playwright install chromium`
+# (abajo) baja el Chromium de la versión instalada por pip. Lo que sí debe coincidir es el Python con el del
+# CI (3.12): el job «imagen» lo comprueba. Mantener la variante «noble» (Ubuntu 24.04).
 #
 # Build: docker build -t verificarro-backend .
 # Run:   docker run -p 3009:3009 --env-file .env verificarro-backend
 
-FROM mcr.microsoft.com/playwright/python:v1.48.0-noble AS runtime
+FROM mcr.microsoft.com/playwright/python:v1.65.2-noble AS runtime
 
 WORKDIR /app
 
