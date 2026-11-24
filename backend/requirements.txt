@@ -4,7 +4,7 @@ pydantic==2.14.3
 pydantic-settings==2.16.3
 python-dotenv==1.2.4
 httpx==0.28.1
-anthropic>=2.8.0,<3.0.0
+anthropic>=2.10.0,<3.0.0
 # Familia de navegadores (playwright, rebrowser-playwright, patchright, camoufox): comparten binarios y
 # versión mayor.menor, así que se suben juntas y en su propio PR de Dependabot (grupo «navegadores»).
 # 24-nov-2026 se quedan en 1.52 / camoufox 0.4.11: camoufox 0.5.9 exige playwright<1.63, rebrowser no publicó
