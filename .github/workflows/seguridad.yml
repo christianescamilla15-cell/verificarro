@@ -66,11 +66,11 @@ jobs:
         lenguaje: [python, javascript-typescript]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+      - uses: github/codeql-action/init@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4.39.4
         with:
           languages: ${{ matrix.lenguaje }}
           queries: security-and-quality
-      - uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+      - uses: github/codeql-action/analyze@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4.39.4
 
   semgrep:
     name: SAST (Semgrep, bloqueante)
@@ -93,7 +93,7 @@ jobs:
       - name: depurar SARIF
         if: always()
         run: python3 herramientas/verificar_reportes.py depurar-sarif semgrep.sarif
-      - uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+      - uses: github/codeql-action/upload-sarif@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4.39.4
         if: always()
         with:
           sarif_file: semgrep.sarif
@@ -128,7 +128,7 @@ jobs:
           output: trivy.sarif
           # Sin esto, con format=sarif la acción descarta `severity` y bloquea con cualquier severidad.
           limit-severities-for-sarif: 'true'
-      - uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+      - uses: github/codeql-action/upload-sarif@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4.39.4
         if: always()
         with:
           sarif_file: trivy.sarif
